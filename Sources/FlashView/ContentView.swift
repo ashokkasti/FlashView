@@ -1,0 +1,31 @@
+import SwiftUI
+
+struct ContentView: View {
+    @StateObject private var folderManager = FolderManager()
+    @StateObject private var appState: AppState
+    
+    init() {
+        let manager = FolderManager()
+        _folderManager = StateObject(wrappedValue: manager)
+        _appState = StateObject(wrappedValue: AppState(folderManager: manager))
+    }
+    
+    var body: some View {
+        Group {
+            if appState.currentFolder != nil {
+                // We are in Viewer Mode
+                ViewerWindowView()
+                    .environmentObject(appState)
+                    .environmentObject(folderManager)
+            } else {
+                // We are in Recent Folders Mode
+                RecentFoldersView(folderManager: folderManager) { path in
+                    appState.openFolder(path)
+                }
+            }
+        }
+        // Force dark mode as per design principles
+        .preferredColorScheme(.dark)
+    }
+}
+
