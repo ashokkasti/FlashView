@@ -13,7 +13,7 @@ struct ThumbnailStripView: View {
                             isSelected: index == appState.currentIndex,
                             rating: appState.imageRatings[url]
                         )
-                        .id(index)
+                        .id(url)
                         .onTapGesture {
                             appState.currentIndex = index
                         }
@@ -24,8 +24,12 @@ struct ThumbnailStripView: View {
             }
             .background(Color(NSColor.windowBackgroundColor).opacity(0.8))
             .onChange(of: appState.currentIndex) { newIndex in
-                withAnimation {
-                    proxy.scrollTo(newIndex, anchor: .center)
+                let list = appState.viewImages
+                if newIndex >= 0 && newIndex < list.count {
+                    let url = list[newIndex]
+                    withAnimation {
+                        proxy.scrollTo(url, anchor: .center)
+                    }
                 }
             }
         }
@@ -87,9 +91,10 @@ struct ThumbnailItemView: View {
         }
         .border(isSelected ? Color.accentColor : Color.clear, width: isSelected ? 3 : 0)
         .onAppear {
-            ImageProcessor.shared.generateThumbnail(for: url) { img in
-                self.thumbnail = img
-            }
+            loadThumbnail()
+        }
+        .onChange(of: url) { _ in
+            loadThumbnail()
         }
         .onHover { hovering in
             isHovered = hovering
@@ -98,6 +103,12 @@ struct ThumbnailItemView: View {
             } else {
                 NSCursor.pop()
             }
+        }
+    }
+    
+    private func loadThumbnail() {
+        ImageProcessor.shared.generateThumbnail(for: url) { img in
+            self.thumbnail = img
         }
     }
 }
