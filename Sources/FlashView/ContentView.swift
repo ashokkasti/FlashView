@@ -17,15 +17,17 @@ struct ContentView: View {
                 ViewerWindowView()
                     .environmentObject(appState)
                     .environmentObject(folderManager)
+                    .frame(minWidth: 800, minHeight: 600)
+                    .background(.ultraThinMaterial)
             } else {
                 // We are in Recent Folders Mode
                 RecentFoldersView(folderManager: folderManager) { path in
                     appState.openFolder(path)
                 }
+                .padding(40)
+                .frame(minWidth: 500, minHeight: 450)
+                .background(.ultraThinMaterial)
             }
         }
-        // Force dark mode as per design principles
-        .preferredColorScheme(.dark)
     }
 }
-

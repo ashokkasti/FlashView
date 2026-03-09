@@ -4,6 +4,10 @@
   <img src="Sources/FlashView/Resources/Assets.xcassets/Logo.png" alt="FlashView Logo" width="200">
 </p>
 
+<p align="center">
+  <img src="Sources/FlashView/Resources/Assets.xcassets/screenshot-1.jpg" alt="FlashView Screenshot" width="800">
+</p>
+
 # FlashView
 
 FlashView is a simple, fast image viewer and rater for macOS, built with SwiftUI.
