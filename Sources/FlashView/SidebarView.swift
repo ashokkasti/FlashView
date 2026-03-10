@@ -5,44 +5,60 @@ struct SidebarView: View {
     @EnvironmentObject var folderManager: FolderManager
     
     var body: some View {
-        List {
-            Section(header: Text("Recent Folders")) {
-                ForEach(folderManager.recentFolders, id: \.self) { path in
-                    FolderOutlineView(
-                        path: path,
-                        isExpanded: path == appState.currentFolder,
-                        counts: folderManager.folderCounts[path] ?? [:],
-                        onSelect: {
-                            appState.openFolder(path)
-                        },
-                        onFilterSelect: { rating in
-                            if path != appState.currentFolder {
+        VStack(spacing: 0) {
+            List {
+                Section(header: Text("Recent Folders")) {
+                    ForEach(folderManager.recentFolders, id: \.self) { path in
+                        FolderOutlineView(
+                            path: path,
+                            isExpanded: path == appState.currentFolder,
+                            counts: folderManager.folderCounts[path] ?? [:],
+                            onSelect: {
                                 appState.openFolder(path)
+                            },
+                            onFilterSelect: { rating in
+                                if path != appState.currentFolder {
+                                    appState.openFolder(path)
+                                }
+                                appState.selectedRatingFilter = rating
                             }
-                            appState.selectedRatingFilter = rating
+                        )
+                        .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
+                        .onAppear {
+                            folderManager.loadCounts(for: path)
                         }
-                    )
-                    .onAppear {
-                        folderManager.loadCounts(for: path)
                     }
                 }
+                
+                Section {
+                    Button(action: {
+                        folderManager.openFolderPicker { path in
+                            if let validPath = path {
+                                appState.openFolder(validPath)
+                            }
+                        }
+                    }) {
+                        Label("Add Folder", systemImage: "plus")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.accentColor)
+                    .listRowInsets(EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4))
+                }
             }
+            .listStyle(SidebarListStyle())
             
-            Section {
-                Button(action: {
-                    folderManager.openFolderPicker { path in
-                        if let validPath = path {
-                            appState.openFolder(validPath)
-                        }
-                    }
-                }) {
-                    Label("Add Folder", systemImage: "plus")
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.accentColor)
+            // Made with ❤️ in Nepal
+            HStack(spacing: 4) {
+                Text("made with")
+                Image(systemName: "heart.fill")
+                    .foregroundColor(.red)
+                    .font(.caption2)
+                Text("in nepal")
             }
+            .font(.caption2)
+            .foregroundColor(.secondary)
+            .padding(.vertical, 8)
         }
-        .listStyle(SidebarListStyle())
     }
 }
 
@@ -74,9 +90,13 @@ struct FolderOutlineView: View {
             content: {
                 if effectiveExpanded {
                     FilterRowView(title: "All", count: counts[0] ?? 0, rating: nil, path: path, onFilterSelect: onFilterSelect)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 4))
                     FilterRowView(title: "Good", count: counts[3] ?? 0, rating: 3, color: .green, path: path, onFilterSelect: onFilterSelect)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 4))
                     FilterRowView(title: "Maybe", count: counts[2] ?? 0, rating: 2, color: .yellow, path: path, onFilterSelect: onFilterSelect)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 4))
                     FilterRowView(title: "Bad", count: counts[1] ?? 0, rating: 1, color: .red, path: path, onFilterSelect: onFilterSelect)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 4))
                 }
             },
             label: {
@@ -100,11 +120,11 @@ struct FolderLabelView: View {
                 Text((path as NSString).lastPathComponent)
                 Spacer()
             }
-            .padding(.vertical, 4)
-            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .padding(.horizontal, 6)
             .contentShape(Rectangle())
             .background(isSelected && appState.selectedRatingFilter == nil ? Color.gray.opacity(0.4) : (isHovered ? Color.gray.opacity(0.2) : Color.clear))
-            .cornerRadius(6)
+            .cornerRadius(4)
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -151,11 +171,11 @@ struct FilterRowView: View {
                     .foregroundColor(.secondary)
                     .font(.caption)
             }
-            .padding(.vertical, 4)
-            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .padding(.horizontal, 6)
             .contentShape(Rectangle())
             .background(isSelected ? Color.gray.opacity(0.4) : (isHovered ? Color.gray.opacity(0.2) : Color.clear))
-            .cornerRadius(6)
+            .cornerRadius(4)
         }
         .buttonStyle(.plain)
         .onHover { hovering in

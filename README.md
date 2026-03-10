@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="Sources/FlashView/Resources/Assets.xcassets/screenshot-1.jpg" alt="FlashView Screenshot" width="800">
+  <img src="Sources/FlashView/Resources/Assets.xcassets/screenshot-1.png" alt="FlashView Screenshot" width="800">
 </p>
 
 # FlashView
