@@ -10,7 +10,7 @@
 
 # FlashView
 
-FlashView is a simple, fast image viewer and rater for macOS, built with SwiftUI.
+FlashView is a free, simple, fast image viewer and rater for macOS, built with SwiftUI.
 
 > [!IMPORTANT]
 > This is a vibe coded application. Please use with care.
@@ -32,10 +32,13 @@ Download the latest release from the [Releases](../../releases) page:
 - **Instant Folder Browsing:** Opens large directories of photos instantly.
 - **Keyboard-first Navigation:** Use left and right arrows to quickly browse without touching your mouse.
 - **Instant Rating:** Press `1` through `3` to apply star ratings directly to the image file metadata.
+- **Local AI Powered Features:**
+  - **Background Removal:** One-click background removal powered by Apple's Vision framework.
+  - **AI Enhanced Filters:** Apply high-quality Fujifilm-inspired film simulations and smart color grading.
+- **Privacy First:** Every single bit of processing happens on your machine. No data is sent to the cloud, ensuring your photos stay private.
 - **Slideshow Mode:** Press `Space` to start/stop an automatic slideshow (advances every 2 seconds).
 - **Quick Deletion:** Press `d` to immediately move the current image to the macOS Trash.
-- **Film Simulations & Editing:** Apply Fujifilm-inspired film simulations and tweak exposure, contrast, etc.
-- **Sidebar Navigation:** Quickly switch between recent folders and filter photos by star rating.
+- **Sidebar & Editing:** Quickly switch between folders and tweak exposure, contrast, and saturation with live previews.
 
 ## Build and Run
 
