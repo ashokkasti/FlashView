@@ -15,12 +15,37 @@ struct ScrollDetector: NSViewRepresentable {
     
     class ScrollViewWrapper: NSView {
         var onScroll: ((CGPoint) -> Void)?
+        private var monitor: Any?
         
-        override func scrollWheel(with event: NSEvent) {
-            // Use precise scrolling delta if available, otherwise delta
-            let dx = event.hasPreciseScrollingDeltas ? event.scrollingDeltaX : event.deltaX
-            let dy = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.deltaY
-            onScroll?(CGPoint(x: dx, y: dy))
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            if let monitor = monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+            
+            if let window = newWindow {
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                    guard let self = self else { return event }
+                    // Check if mouse is over this view
+                    let windowLoc = event.locationInWindow
+                    let viewPoint = self.convert(windowLoc, from: nil)
+                    
+                    if self.bounds.contains(viewPoint) {
+                        let dx = event.scrollingDeltaX
+                        let dy = event.scrollingDeltaY
+                        
+                        // We use the raw delta for more consistency
+                        self.onScroll?(CGPoint(x: dx, y: dy))
+                    }
+                    return event
+                }
+            }
+        }
+        
+        deinit {
+            if let monitor = monitor {
+                NSEvent.removeMonitor(monitor)
+            }
         }
     }
 }

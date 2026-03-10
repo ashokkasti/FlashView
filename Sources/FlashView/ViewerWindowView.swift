@@ -15,6 +15,7 @@ struct ViewerWindowView: View {
                 // Main Content Area
                 VStack(spacing: 0) {
                     MinimalToolbar()
+                        .zIndex(1)
                     
                     if appState.viewImages.isEmpty {
                         EmptyStateView()
@@ -31,6 +32,7 @@ struct ViewerWindowView: View {
                                         .frame(height: 140)
                                 }
                             }
+                            .clipped()
                         }
                     }
                 }
@@ -55,6 +57,9 @@ struct ViewerWindowView: View {
                     Button("") { appState.applyRating(1) }.keyboardShortcut("1", modifiers: [])
                     Button("") { appState.applyRating(2) }.keyboardShortcut("2", modifiers: [])
                     Button("") { appState.applyRating(3) }.keyboardShortcut("3", modifiers: [])
+                    
+                    // Save shortcut
+                    Button("") { appState.saveImageEdits() }.keyboardShortcut("s", modifiers: [.command])
                 }
                 .opacity(0)
             )
@@ -136,12 +141,19 @@ struct MinimalToolbar: View {
                     .foregroundColor(r == 2 ? .black : .white)
             }
             
-            // Image counter
+            // Image counter & Size
             if !appState.viewImages.isEmpty {
-                Text("\(appState.currentIndex + 1)/\(appState.viewImages.count)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .monospacedDigit()
+                VStack(alignment: .trailing, spacing: 0) {
+                    Text("\(appState.currentIndex + 1)/\(appState.viewImages.count)")
+                        .font(.caption)
+                        .monospacedDigit()
+                    
+                    if let size = appState.currentImageFileSize {
+                        Text(size)
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
             
             Spacer()

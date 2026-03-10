@@ -19,6 +19,7 @@ struct ContentView: View {
                     .environmentObject(folderManager)
                     .frame(minWidth: 800, minHeight: 600)
                     .background(.ultraThinMaterial)
+                    .transition(.opacity)
             } else {
                 // We are in Recent Folders Mode
                 RecentFoldersView(folderManager: folderManager) { path in
@@ -27,6 +28,14 @@ struct ContentView: View {
                 .padding(40)
                 .frame(minWidth: 500, minHeight: 450)
                 .background(.ultraThinMaterial)
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut, value: appState.currentFolder)
+        .onOpenURL { url in
+            // Handle 'Open with FlashView'
+            if url.isFileURL {
+                appState.openFile(at: url)
             }
         }
     }

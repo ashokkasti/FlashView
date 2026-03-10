@@ -178,6 +178,11 @@ struct FilterRowView: View {
             .cornerRadius(4)
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button("Download as ZIP") {
+                appState.exportBucketAsZip(rating: rating, folderPath: path)
+            }
+        }
         .onHover { hovering in
             isHovered = hovering
             if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }

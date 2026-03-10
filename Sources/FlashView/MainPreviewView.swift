@@ -102,10 +102,12 @@ struct MainPreviewView: View {
         }
         .onChange(of: appState.currentImage) { newImage in
             resetZoom()
+            loadedImage = nil // Immediate clear for smoother transition
             loadImage(url: newImage)
         }
         .onChange(of: appState.currentIndex) { _ in
             resetZoom()
+            loadedImage = nil // Immediate clear
             loadImage(url: appState.currentImage)
         }
         .onChange(of: appState.imageReloadToken) { _ in
@@ -147,18 +149,29 @@ struct MainPreviewView: View {
         return "\(base)_\(adj.filmSimulation.rawValue)_\(adj.exposure)_\(adj.contrast)_\(adj.saturation)_\(adj.rotationSteps)_\(adj.rotationAngle)_\(adj.backgroundRemoved)"
     }
     
+    @State private var loadingTask: DispatchWorkItem?
+    
     private func loadImage(url: URL?) {
+        loadingTask?.cancel()
+        
         guard let url = url else {
             loadedImage = nil
             return
         }
         
-        DispatchQueue.global(qos: .userInitiated).async {
+        // Small debounce for rapid scrolling
+        let task = DispatchWorkItem {
             let img = ImageProcessor.shared.loadLargeImage(from: url)
             DispatchQueue.main.async {
-                self.loadedImage = img
+                // Only update if the user hasn't moved to another image yet
+                if appState.currentImage == url {
+                    self.loadedImage = img
+                }
             }
         }
+        
+        loadingTask = task
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.05, execute: task)
     }
 }
 

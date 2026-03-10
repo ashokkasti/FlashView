@@ -121,7 +121,11 @@ struct EditingPanelView: View {
                         .foregroundColor(.secondary)
                     
                     Button("Save in Place") {
-                        appState.showSaveConfirmation = true
+                        if appState.skipSaveInPlaceConfirmation {
+                            appState.saveImageInPlace()
+                        } else {
+                            appState.showSaveConfirmation = true
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                     .frame(maxWidth: .infinity)
@@ -151,6 +155,10 @@ struct EditingPanelView: View {
         .alert("Save in Place?", isPresented: $appState.showSaveConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Overwrite Original", role: .destructive) {
+                appState.saveImageInPlace()
+            }
+            Button("Always Overwrite this Session") {
+                appState.skipSaveInPlaceConfirmation = true
                 appState.saveImageInPlace()
             }
         } message: {

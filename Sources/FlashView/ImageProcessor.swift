@@ -83,7 +83,8 @@ class ImageProcessor {
     
     func loadLargeImage(from url: URL) -> NSImage? {
         // Use CIImage to ensure high quality and consistency with the processing pipeline
-        guard var ciImage = CIImage(contentsOf: url) else {
+        // Explicitly apply orientation from metadata so it matches the thumbnail
+        guard var ciImage = CIImage(contentsOf: url)?.oriented(forExifOrientation: getExifOrientation(url: url)) else {
             return NSImage(contentsOf: url) // Minimal fallback
         }
         
@@ -113,7 +114,7 @@ class ImageProcessor {
     
     /// Process image through the full pipeline: manual adjustments → film simulation → background removal → crop → rotate
     func processImage(url: URL, adjustments: ImageAdjustments) -> NSImage? {
-        guard let ciImage = CIImage(contentsOf: url) else { return nil }
+        guard let ciImage = CIImage(contentsOf: url)?.oriented(forExifOrientation: getExifOrientation(url: url)) else { return nil }
         
         var image = ciImage
         
@@ -768,5 +769,12 @@ class ImageProcessor {
     
     func saveEditedImage(url: URL, adjustments: ImageAdjustments) {
         saveProcessedImage(url: url, adjustments: adjustments, to: url, format: .jpeg, jpegQuality: 0.92)
+    }
+    
+    // Helper to get orientation from ImageSource
+    private func getExifOrientation(url: URL) -> Int32 {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return 1 }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any]
+        return (properties?[kCGImagePropertyOrientation as String] as? Int32) ?? 1
     }
 }

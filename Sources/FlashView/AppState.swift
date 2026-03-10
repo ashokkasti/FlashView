@@ -112,11 +112,17 @@ class AppState: ObservableObject {
     // Processing state — blocks UI when a heavy filter is being applied
     @Published var isProcessing: Bool = false
     
-    // Image reload token — bumped to force reload of main image and thumbnails
     @Published var imageReloadToken: UUID = UUID()
+    
+    // File Size display
+    @Published var currentImageFileSize: String? = nil
+    
+    // Configuration
+    @Published var skipSaveInPlaceConfirmation: Bool = false
     
     let folderManager: FolderManager
     private var processingTask: DispatchWorkItem?
+    private var loadingTask: DispatchWorkItem?
     
     var viewImages: [URL] {
         if let filter = selectedRatingFilter {
@@ -128,6 +134,23 @@ class AppState: ObservableObject {
     init(folderManager: FolderManager) {
         self.folderManager = folderManager
     }
+    
+    func openFile(at url: URL) {
+        let parentPath = url.deletingLastPathComponent().path
+        folderManager.addRecentFolder(parentPath)
+        
+        // Open the folder
+        openFolder(parentPath)
+        
+        // Wait for images to load, then select the file
+        // Since openFolder is async on main, we can just dispatch after
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            if let index = self.images.firstIndex(of: url) {
+                self.selectImage(at: index)
+            }
+        }
+    }
+
     
     func showToast(_ message: String) {
         toastMessage = message
@@ -226,6 +249,15 @@ class AppState: ObservableObject {
                 self.imageReloadToken = UUID()
                 self.isProcessing = false
                 self.showToast("Image Saved!")
+                
+                // Update file size
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                   let size = attrs[.size] as? Int64 {
+                    let formatter = ByteCountFormatter()
+                    formatter.allowedUnits = [.useMB, .useKB]
+                    formatter.countStyle = .file
+                    self.currentImageFileSize = formatter.string(fromByteCount: size)
+                }
             }
         }
     }
@@ -254,8 +286,70 @@ class AppState: ObservableObject {
             showToast("No edits to save")
             return
         }
-        showSaveConfirmation = true
+        
+        if skipSaveInPlaceConfirmation {
+            saveImageInPlace()
+        } else {
+            showSaveConfirmation = true
+        }
     }
+    
+    // MARK: - Export Bucket to ZIP
+    
+    func exportBucketAsZip(rating: Int?, folderPath: String) {
+        let list = (rating == nil) ? images : images.filter { imageRatings[$0] == rating }
+        guard !list.isEmpty else {
+            showToast("Bucket is empty")
+            return
+        }
+        
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.zip]
+        let ratingName = rating == nil ? "All" : (rating == 3 ? "Good" : (rating == 2 ? "Maybe" : "Bad"))
+        let folderName = (folderPath as NSString).lastPathComponent
+        savePanel.nameFieldStringValue = "\(folderName)_\(ratingName)_Photos.zip"
+        
+        savePanel.begin { response in
+            if response == .OK, let zipURL = savePanel.url {
+                self.isProcessing = true
+                self.showToast("Creating ZIP...")
+                
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                    try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+                    
+                    // Copy files to temp dir first to zip them nicely
+                    for url in list {
+                        let dest = tempDir.appendingPathComponent(url.lastPathComponent)
+                        try? FileManager.default.copyItem(at: url, to: dest)
+                    }
+                    
+                    let process = Process()
+                    process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+                    // -j junk paths (don't include directory structure), -r recursive
+                    process.arguments = ["-j", zipURL.path] + list.map { url in url.lastPathComponent }
+                    process.currentDirectoryURL = tempDir
+                    
+                    do {
+                        try process.run()
+                        process.waitUntilExit()
+                        DispatchQueue.main.async {
+                            self.isProcessing = false
+                            self.showToast("Exported Bucket to ZIP!")
+                            // Cleanup
+                            try? FileManager.default.removeItem(at: tempDir)
+                        }
+                    } catch {
+                        DispatchQueue.main.async {
+                            self.isProcessing = false
+                            self.showToast("Failed to create ZIP")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     
     func openFolder(_ path: String) {
         let loadedImages = folderManager.getImagesInFolder(path)
@@ -264,7 +358,7 @@ class AppState: ObservableObject {
             self.currentFolder = path
             self.images = loadedImages
             self.imageRatings = [:]
-            self.currentIndex = 0
+            self.selectImage(at: 0)
             self.isSlideshowActive = false
             self.selectedRatingFilter = nil
             self.adjustments = ImageAdjustments()
@@ -349,6 +443,17 @@ class AppState: ObservableObject {
         adjustments = ImageAdjustments()
         isCropRotateMode = false
         processedPreviewImage = nil
+        
+        // Update file size
+        if let url = currentImage {
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+               let size = attrs[.size] as? Int64 {
+                let formatter = ByteCountFormatter()
+                formatter.allowedUnits = [.useMB, .useKB]
+                formatter.countStyle = .file
+                currentImageFileSize = formatter.string(fromByteCount: size)
+            }
+        }
     }
     
     func nextImage() {
@@ -400,12 +505,12 @@ class AppState: ObservableObject {
     // MARK: - Crop & Rotate Helpers
     
     func rotateLeft90() {
-        adjustments.rotationSteps = (adjustments.rotationSteps + 3) % 4
+        adjustments.rotationSteps = (adjustments.rotationSteps + 1) % 4
         requestPreviewUpdate()
     }
     
     func rotateRight90() {
-        adjustments.rotationSteps = (adjustments.rotationSteps + 1) % 4
+        adjustments.rotationSteps = (adjustments.rotationSteps + 3) % 4
         requestPreviewUpdate()
     }
     
