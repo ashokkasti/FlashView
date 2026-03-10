@@ -11,11 +11,12 @@ struct ThumbnailStripView: View {
                         ThumbnailItemView(
                             url: url,
                             isSelected: index == appState.currentIndex,
-                            rating: appState.imageRatings[url]
+                            rating: appState.imageRatings[url],
+                            reloadToken: appState.imageReloadToken
                         )
                         .id(url)
                         .onTapGesture {
-                            appState.currentIndex = index
+                            appState.selectImage(at: index)
                         }
                     }
                 }
@@ -40,6 +41,7 @@ struct ThumbnailItemView: View {
     let url: URL
     let isSelected: Bool
     let rating: Int?
+    let reloadToken: UUID
     
     @State private var thumbnail: NSImage?
     @State private var isHovered: Bool = false
@@ -94,6 +96,11 @@ struct ThumbnailItemView: View {
             loadThumbnail()
         }
         .onChange(of: url) { _ in
+            loadThumbnail()
+        }
+        // Force reload when token changes (e.g. after save in place)
+        .onChange(of: reloadToken) { _ in
+            thumbnail = nil
             loadThumbnail()
         }
         .onHover { hovering in
