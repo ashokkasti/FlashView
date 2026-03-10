@@ -82,19 +82,31 @@ class ImageProcessor {
     }
     
     func loadLargeImage(from url: URL) -> NSImage? {
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceThumbnailMaxPixelSize: 3000
-        ]
+        // Use CIImage to ensure high quality and consistency with the processing pipeline
+        guard var ciImage = CIImage(contentsOf: url) else {
+            return NSImage(contentsOf: url) // Minimal fallback
+        }
         
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+        let outputExtent = ciImage.extent
+        let maxDim: CGFloat = 4096
+        
+        if outputExtent.width > maxDim || outputExtent.height > maxDim {
+            let scale = maxDim / max(outputExtent.width, outputExtent.height)
+            if let filter = CIFilter(name: "CILanczosScaleTransform") {
+                filter.setValue(ciImage, forKey: kCIInputImageKey)
+                filter.setValue(scale, forKey: kCIInputScaleKey)
+                if let output = filter.outputImage {
+                    ciImage = output
+                }
+            }
+        }
+        
+        let finalExtent = ciImage.extent
+        guard let cgImage = ciContext.createCGImage(ciImage, from: finalExtent) else {
             return NSImage(contentsOf: url)
         }
         
-        return NSImage(cgImage: cgImage, size: .zero)
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
     
     // MARK: - Full CIImage Processing Pipeline

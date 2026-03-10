@@ -5,7 +5,7 @@ struct ThumbnailStripView: View {
     
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal, showsIndicators: true) {
                 LazyHStack(spacing: 4) {
                     ForEach(Array(appState.viewImages.enumerated()), id: \.element) { index, url in
                         ThumbnailItemView(
@@ -22,6 +22,13 @@ struct ThumbnailStripView: View {
                 }
                 .padding(.horizontal)
                 .frame(maxHeight: .infinity)
+                .background(
+                    ScrollDetector { delta in
+                        if abs(delta.y) > abs(delta.x) {
+                            scrollStrip(by: delta.y, proxy: proxy)
+                        }
+                    }
+                )
             }
             .background(Color(NSColor.windowBackgroundColor).opacity(0.8))
             .onChange(of: appState.currentIndex) { newIndex in
@@ -35,7 +42,21 @@ struct ThumbnailStripView: View {
             }
         }
     }
+    
+    // Manual scroll logic using proxy
+    private func scrollStrip(by delta: CGFloat, proxy: ScrollViewProxy) {
+        // We'll use the scroll wheel to move through the images
+        // A simple threshold to avoid too many jumps
+        if abs(delta) > 5 {
+            if delta < 0 {
+                appState.nextImage()
+            } else {
+                appState.previousImage()
+            }
+        }
+    }
 }
+
 
 struct ThumbnailItemView: View {
     let url: URL

@@ -3,6 +3,10 @@ import SwiftUI
 struct MainPreviewView: View {
     @EnvironmentObject var appState: AppState
     @State private var loadedImage: NSImage?
+    @State private var scale: CGFloat = 1.0
+    @State private var lastScale: CGFloat = 1.0
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
     
     var body: some View {
         ZStack {
@@ -12,12 +16,62 @@ struct MainPreviewView: View {
                 CropOverlayView(image: image)
                     .environmentObject(appState)
             } else if let image = displayImage {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .id(imageId)
-                    .transition(.opacity)
-                    .animation(.easeInOut(duration: 0.1), value: appState.currentImage)
+                ZStack {
+                    Image(nsImage: image)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fit)
+                        .scaleEffect(scale)
+                        .offset(offset)
+                        .id(imageId)
+                        .transition(.opacity)
+                        .animation(.easeInOut(duration: 0.1), value: appState.currentImage)
+                    
+                    // Invisible overlay to catch scroll events for zoom
+                    ScrollDetector { delta in
+                        let zoomSpeed: CGFloat = 0.05
+                        let newScale = scale + (delta.y * zoomSpeed)
+                        scale = max(1.0, min(10.0, newScale))
+                        lastScale = scale
+                    }
+                }
+                .gesture(
+                        MagnificationGesture()
+                            .onChanged { value in
+                                scale = lastScale * value.magnitude
+                            }
+                            .onEnded { value in
+                                lastScale = scale
+                                // Ensure scale doesn't go below 1.0
+                                if scale < 1.0 {
+                                    withAnimation(.spring()) {
+                                        scale = 1.0
+                                        lastScale = 1.0
+                                        offset = .zero
+                                        lastOffset = .zero
+                                    }
+                                }
+                            }
+                    )
+                    .simultaneousGesture(
+                        DragGesture()
+                            .onChanged { value in
+                                if scale > 1.0 {
+                                    offset = CGSize(
+                                        width: lastOffset.width + value.translation.width,
+                                        height: lastOffset.height + value.translation.height
+                                    )
+                                }
+                            }
+                            .onEnded { value in
+                                lastOffset = offset
+                            }
+                    )
+                    .onTapGesture(count: 2) {
+                        withAnimation(.spring()) {
+                            resetZoom()
+                        }
+                    }
                     .contextMenu {
                         Button("Good (3)") { appState.applyRating(3) }
                         Button("Maybe (2)") { appState.applyRating(2) }
@@ -47,15 +101,14 @@ struct MainPreviewView: View {
             }
         }
         .onChange(of: appState.currentImage) { newImage in
+            resetZoom()
             loadImage(url: newImage)
         }
         .onChange(of: appState.currentIndex) { _ in
-            // When thumbnail is tapped, currentIndex changes but currentImage
-            // may resolve to a different URL — force reload
+            resetZoom()
             loadImage(url: appState.currentImage)
         }
         .onChange(of: appState.imageReloadToken) { _ in
-            // Force reload after save-in-place
             loadImage(url: appState.currentImage)
         }
         .onChange(of: appState.adjustments) { _ in
@@ -64,6 +117,13 @@ struct MainPreviewView: View {
         .onAppear {
             loadImage(url: appState.currentImage)
         }
+    }
+    
+    private func resetZoom() {
+        scale = 1.0
+        lastScale = 1.0
+        offset = .zero
+        lastOffset = .zero
     }
     
     /// Use processed image if available (adjustments applied), otherwise raw loaded image
