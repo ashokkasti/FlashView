@@ -15,6 +15,18 @@ FlashView is a simple, fast image viewer and rater for macOS, built with SwiftUI
 > [!IMPORTANT]
 > This is a vibe coded application. Please use with care.
 
+## Why FlashView?
+
+I built FlashView because I had tons of photos sitting on my drive and no quick way to triage them. Every photo management app I tried was either too heavy, too slow, or locked behind a paywall. All I wanted was a simple, keyboard-driven tool to rapidly flip through images, rate them into a few buckets (Good, Maybe, Bad), and move on. I couldn't find a free app that did exactly that — so I built one.
+
+## Installation
+
+Download the latest release from the [Releases](../../releases) page:
+
+1. Grab the `.dmg` file (universal build — works on both Apple Silicon and Intel Macs)
+2. Open the DMG and drag **FlashView.app** to your **Applications** folder
+3. Launch FlashView and start triaging your photos!
+
 ## Features
 
 - **Instant Folder Browsing:** Opens large directories of photos instantly.

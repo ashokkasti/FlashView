@@ -1,0 +1,112 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Release
+    runs-on: macos-14
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Build for Apple Silicon (arm64)
+        run: swift build -c release --arch arm64
+
+      - name: Build for Intel (x86_64)
+        run: swift build -c release --arch x86_64
+
+      - name: Create Universal Binary
+        run: |
+          mkdir -p .build/universal
+          lipo -create \
+            .build/arm64-apple-macosx/release/FlashView \
+            .build/x86_64-apple-macosx/release/FlashView \
+            -output .build/universal/FlashView
+
+      - name: Create App Bundle
+        run: |
+          APP_DIR="FlashView.app"
+          CONTENTS_DIR="$APP_DIR/Contents"
+          MACOS_DIR="$CONTENTS_DIR/MacOS"
+          RESOURCES_DIR="$CONTENTS_DIR/Resources"
+
+          mkdir -p "$MACOS_DIR"
+          mkdir -p "$RESOURCES_DIR"
+
+          # Copy universal binary
+          cp .build/universal/FlashView "$MACOS_DIR/"
+
+          # Copy Info.plist
+          cp Info.plist "$CONTENTS_DIR/"
+
+          # Copy Logo
+          ASSETS_DIR="Sources/FlashView/Resources/Assets.xcassets"
+          cp "$ASSETS_DIR/Logo.png" "$RESOURCES_DIR/" 2>/dev/null || true
+
+          # Create iconset and generate icns
+          ICONSET_DIR="/tmp/AppIcon.iconset"
+          mkdir -p "$ICONSET_DIR"
+          cp "$ASSETS_DIR/icon_16.png" "$ICONSET_DIR/icon_16x16.png" 2>/dev/null || true
+          cp "$ASSETS_DIR/icon_32.png" "$ICONSET_DIR/icon_32x32.png" 2>/dev/null || true
+          cp "$ASSETS_DIR/icon_64.png" "$ICONSET_DIR/icon_32x32@2x.png" 2>/dev/null || true
+          cp "$ASSETS_DIR/icon_128.png" "$ICONSET_DIR/icon_128x128.png" 2>/dev/null || true
+          cp "$ASSETS_DIR/icon_256.png" "$ICONSET_DIR/icon_128x128@2x.png" 2>/dev/null || true
+          cp "$ASSETS_DIR/icon_512.png" "$ICONSET_DIR/icon_256x256@2x.png" 2>/dev/null || true
+          iconutil -c icns "$ICONSET_DIR" -o "$RESOURCES_DIR/AppIcon.icns" 2>/dev/null || true
+
+          echo "App bundle created successfully"
+
+      - name: Create DMG
+        run: |
+          mkdir -p dmg_contents
+          cp -R FlashView.app dmg_contents/
+          ln -s /Applications dmg_contents/Applications
+          hdiutil create -volname "FlashView" \
+            -srcfolder dmg_contents \
+            -ov -format UDZO \
+            "FlashView-${{ steps.get_version.outputs.VERSION }}-universal.dmg"
+
+      - name: Create ZIP
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent FlashView.app \
+            "FlashView-${{ steps.get_version.outputs.VERSION }}-universal.zip"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "FlashView v${{ steps.get_version.outputs.VERSION }}"
+          body: |
+            ## FlashView v${{ steps.get_version.outputs.VERSION }}
+
+            ### Installation
+            1. Download `FlashView-${{ steps.get_version.outputs.VERSION }}-universal.dmg`
+            2. Open the DMG and drag **FlashView.app** to your **Applications** folder
+            3. Launch FlashView from your Applications folder
+
+            > **Note:** This is a universal build that runs natively on both Apple Silicon (M1/M2/M3/M4) and Intel Macs.
+
+            Alternatively, download the `.zip` file, extract it, and move `FlashView.app` to your Applications folder.
+          files: |
+            FlashView-${{ steps.get_version.outputs.VERSION }}-universal.dmg
+            FlashView-${{ steps.get_version.outputs.VERSION }}-universal.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
