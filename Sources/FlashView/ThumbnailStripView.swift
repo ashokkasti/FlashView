@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ThumbnailStripView: View {
     @EnvironmentObject var appState: AppState
-    @State private var scrollAccumulation: CGFloat = 0
     
     var body: some View {
         ScrollViewReader { proxy in
@@ -25,13 +24,9 @@ struct ThumbnailStripView: View {
                 .frame(maxHeight: .infinity)
             }
             .background(
-                ScrollDetector { delta in
-                    if abs(delta.y) > abs(delta.x) {
-                        scrollStrip(by: delta.y)
-                    }
-                }
+                ScrollDetector(onScroll: { _ in }, translateVerticalToHorizontal: true)
             )
-            .background(Color(NSColor.windowBackgroundColor).opacity(0.8))
+            .background(VisualEffectView(material: .underWindowBackground, blendingMode: .behindWindow))
             .onChange(of: appState.currentIndex) { newIndex in
                 let list = appState.viewImages
                 if newIndex >= 0 && newIndex < list.count {
@@ -41,24 +36,28 @@ struct ThumbnailStripView: View {
                     }
                 }
             }
+            .onChange(of: appState.isGridViewActive) { isActive in
+                if !isActive {
+                    scrollToCurrentItem(proxy: proxy)
+                }
+            }
+            .onAppear {
+                // When coming back from Grid View, or initial load
+                scrollToCurrentItem(proxy: proxy)
+            }
         }
     }
     
-    
-    // Manual scroll logic
-    private func scrollStrip(by delta: CGFloat) {
-        scrollAccumulation += delta
-        
-        // Lower threshold for better response
-        let threshold: CGFloat = 15
-        
-        if abs(scrollAccumulation) >= threshold {
-            if scrollAccumulation < 0 {
-                appState.nextImage()
-            } else {
-                appState.previousImage()
+    private func scrollToCurrentItem(proxy: ScrollViewProxy) {
+        let list = appState.viewImages
+        let index = appState.currentIndex
+        if index >= 0 && index < list.count {
+            let url = list[index]
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                withAnimation {
+                    proxy.scrollTo(url, anchor: .center)
+                }
             }
-            scrollAccumulation = 0
         }
     }
 }
@@ -137,6 +136,24 @@ struct ThumbnailItemView: View {
             } else {
                 NSCursor.pop()
             }
+        }
+        .contextMenu {
+            // Can't use AppState directly without injecting it here or passing closure,
+            // let's just make it simple
+            Button("Copy Image") {
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.writeObjects([url as NSURL])
+            }
+            Button("Share") {
+                let sharingPicker = NSSharingServicePicker(items: [url])
+                if let window = NSApp.keyWindow, let view = window.contentView {
+                    sharingPicker.show(relativeTo: .zero, of: view, preferredEdge: .minY)
+                }
+            }
+        }
+        .onDrag {
+            NSItemProvider(object: url as NSURL)
         }
     }
     

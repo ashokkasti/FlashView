@@ -52,11 +52,28 @@ struct RecentFoldersView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 8) {
                             ForEach(folderManager.recentFolders, id: \.self) { path in
-                                RecentFolderRow(path: path) {
-                                    // Move to top and open
-                                    folderManager.addRecentFolder(path)
-                                    onFolderSelected(path)
-                                }
+                                RecentFolderRow(
+                                    path: path,
+                                    action: {
+                                        // Move to top and open
+                                        folderManager.addRecentFolder(path)
+                                        onFolderSelected(path)
+                                    },
+                                    onRemove: {
+                                        folderManager.removeRecentFolder(path)
+                                    },
+                                    onCopy: {
+                                        let pb = NSPasteboard.general
+                                        pb.clearContents()
+                                        pb.writeObjects([URL(fileURLWithPath: path) as NSURL])
+                                    },
+                                    onShare: {
+                                        let sharingPicker = NSSharingServicePicker(items: [URL(fileURLWithPath: path)])
+                                        if let window = NSApp.keyWindow, let view = window.contentView {
+                                            sharingPicker.show(relativeTo: .zero, of: view, preferredEdge: .minY)
+                                        }
+                                    }
+                                )
                             }
                         }
                     }
@@ -85,6 +102,9 @@ struct RecentFoldersView: View {
 struct RecentFolderRow: View {
     let path: String
     let action: () -> Void
+    let onRemove: () -> Void
+    let onCopy: () -> Void
+    let onShare: () -> Void
     
     @State private var isHovered = false
     
@@ -110,6 +130,19 @@ struct RecentFolderRow: View {
                 
                 Spacer()
                 
+                if isHovered {
+                    Button(action: onRemove) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
+                            .font(.system(size: 16))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 4)
+                    .onHover { innerHover in
+                        if innerHover { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
+                }
+                
                 Image(systemName: "chevron.right")
                     .foregroundColor(.secondary)
                     .font(.caption)
@@ -120,8 +153,15 @@ struct RecentFolderRow: View {
             .cornerRadius(8)
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button("Copy Folder URL") { onCopy() }
+            Button("Share") { onShare() }
+            Divider()
+            Button("Remove from Recent") { onRemove() }
+        }
         .onHover { hovering in
             isHovered = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
     }
 }

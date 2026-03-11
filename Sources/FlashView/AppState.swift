@@ -78,6 +78,10 @@ class AppState: ObservableObject {
     // Quick Compare Mode
     @Published var isQuickCompareActive: Bool = false
     
+    // Grid View State
+    @Published var isGridViewActive: Bool = false
+    
+    
     // Feedback
     @Published var toastMessage: String? = nil
     
@@ -111,6 +115,9 @@ class AppState: ObservableObject {
     
     // Processing state — blocks UI when a heavy filter is being applied
     @Published var isProcessing: Bool = false
+    
+    // UI State for editing UI
+    @Published var isFilmSimulationExpanded: Bool = false
     
     @Published var imageReloadToken: UUID = UUID()
     
@@ -522,5 +529,56 @@ class AppState: ObservableObject {
     
     func cancelCropRotate() {
         isCropRotateMode = false
+    }
+    
+    // MARK: - Copy and Share Native Functions
+    func copyToClipboard(url: URL) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        
+        var objects: [NSPasteboardWriting] = [url as NSURL]
+        if let image = NSImage(contentsOf: url) {
+            objects.append(image)
+        }
+        
+        pb.writeObjects(objects)
+        showToast("Copied to clipboard")
+    }
+    
+    func copyBucketImages(rating: Int?, folderPath: String) {
+        let fileManager = FileManager.default
+        let url = URL(fileURLWithPath: folderPath)
+        
+        do {
+            let contents = try fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
+            let extensions = ["jpg", "jpeg", "png", "heic", "tiff"]
+            var bucketUrls = contents.filter { u in
+                extensions.contains(u.pathExtension.lowercased())
+            }
+            
+            if let r = rating {
+                var cachedRatings: [URL: Int] = [:]
+                for u in bucketUrls {
+                    if let rating = MetadataManager.shared.getRating(for: u) {
+                        cachedRatings[u] = rating
+                    }
+                }
+                bucketUrls = bucketUrls.filter { cachedRatings[$0] == r }
+            }
+            
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.writeObjects(bucketUrls as [NSURL])
+            showToast("Copied \(bucketUrls.count) items")
+        } catch {
+            showToast("Failed to copy items")
+        }
+    }
+    
+    func shareItem(url: URL) {
+        let sharingPicker = NSSharingServicePicker(items: [url])
+        if let window = NSApp.keyWindow, let view = window.contentView {
+            sharingPicker.show(relativeTo: .zero, of: view, preferredEdge: .minY)
+        }
     }
 }

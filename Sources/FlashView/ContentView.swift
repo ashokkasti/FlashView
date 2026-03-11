@@ -18,7 +18,7 @@ struct ContentView: View {
                     .environmentObject(appState)
                     .environmentObject(folderManager)
                     .frame(minWidth: 800, minHeight: 600)
-                    .background(.ultraThinMaterial)
+                    .background(VisualEffectView(material: .underWindowBackground, blendingMode: .behindWindow))
                     .transition(.opacity)
             } else {
                 // We are in Recent Folders Mode
@@ -27,7 +27,7 @@ struct ContentView: View {
                 }
                 .padding(40)
                 .frame(minWidth: 500, minHeight: 450)
-                .background(.ultraThinMaterial)
+                .background(VisualEffectView(material: .underWindowBackground, blendingMode: .behindWindow))
                 .transition(.opacity)
             }
         }

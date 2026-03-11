@@ -18,7 +18,7 @@ struct FlashViewApp: App {
                             ]
                         ),
                         .applicationName: "FlashView" as NSString,
-                        .version: "1.0" as NSString,
+                        .version: "0.0.4" as NSString,
                     ])
                 }
             }

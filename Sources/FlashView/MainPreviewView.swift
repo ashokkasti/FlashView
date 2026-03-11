@@ -77,6 +77,12 @@ struct MainPreviewView: View {
                         Button("Maybe (2)") { appState.applyRating(2) }
                         Button("Bad (1)") { appState.applyRating(1) }
                         Divider()
+                        Button("Copy Image") {
+                            if let url = appState.currentImage {
+                                appState.copyToClipboard(url: url)
+                            }
+                        }
+                        Divider()
                         Button("Delete", role: .destructive) { appState.deleteCurrentImage() }
                     }
             } else {

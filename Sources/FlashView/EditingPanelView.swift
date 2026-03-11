@@ -13,17 +13,44 @@ struct EditingPanelView: View {
                     .padding(.bottom, 4)
                 
                 // Film Simulations
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Film Simulation")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    
-                    Picker("", selection: $appState.adjustments.filmSimulation) {
-                        ForEach(FilmSimulation.allCases) { sim in
-                            Text(sim.rawValue).tag(sim)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Film Simulation")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        
+                        Spacer()
+                        
+                        if appState.adjustments.filmSimulation != .none {
+                            Button("Clear") {
+                                appState.adjustments.filmSimulation = .none
+                                appState.requestPreviewUpdate()
+                            }
+                            .font(.caption)
+                            .foregroundColor(.accentColor)
+                            .buttonStyle(.plain)
                         }
                     }
-                    .labelsHidden()
+                    
+                    DisclosureGroup(
+                        isExpanded: $appState.isFilmSimulationExpanded,
+                        content: {
+                            FilmSimulationGridView()
+                                .padding(.top, 8)
+                        },
+                        label: {
+                            Text(appState.adjustments.filmSimulation == .none ? "Apply Filters" : appState.adjustments.filmSimulation.rawValue)
+                                .font(.subheadline)
+                                .foregroundColor(.primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    withAnimation {
+                                        appState.isFilmSimulationExpanded.toggle()
+                                    }
+                                }
+                        }
+                    )
                 }
                 
                 Divider()
@@ -256,6 +283,110 @@ struct ExportSheetView: View {
         if panel.runModal() == .OK, let url = panel.url {
             appState.exportImage(to: url, format: selectedFormat, quality: jpegQuality)
             appState.showExportSheet = false
+        }
+    }
+}
+
+// MARK: - Film Simulation Grid Components
+
+struct FilmSimulationGridView: View {
+    @EnvironmentObject var appState: AppState
+    
+    // We use a LazyVGrid with 3 columns 
+    let columns = [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)]
+    
+    var body: some View {
+        if let currentURL = appState.currentImage {
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(FilmSimulation.allCases) { sim in
+                    FilmSimulationItemView(url: currentURL, simulation: sim)
+                }
+            }
+        } else {
+            Text("No Image Selected")
+                .foregroundColor(.secondary)
+                .font(.caption)
+        }
+    }
+}
+
+struct FilmSimulationItemView: View {
+    @EnvironmentObject var appState: AppState
+    let url: URL
+    let simulation: FilmSimulation
+    
+    @State private var isHovered = false
+    
+    var isSelected: Bool {
+        appState.adjustments.filmSimulation == simulation
+    }
+    
+    private var filterGradient: LinearGradient {
+        switch simulation {
+        case .none: return LinearGradient(colors: [.gray.opacity(0.3), .gray.opacity(0.3)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .provia: return LinearGradient(colors: [.blue.opacity(0.6), .green.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .velvia: return LinearGradient(colors: [.red.opacity(0.7), .yellow.opacity(0.7)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .classicChrome: return LinearGradient(colors: [.brown.opacity(0.6), .gray.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .astia: return LinearGradient(colors: [.pink.opacity(0.6), .orange.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .eterna: return LinearGradient(colors: [.cyan.opacity(0.6), .blue.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .nostalgicNeg: return LinearGradient(colors: [.orange.opacity(0.7), .yellow.opacity(0.7)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .classicNeg: return LinearGradient(colors: [.green.opacity(0.5), .brown.opacity(0.5)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .sepia: return LinearGradient(colors: [.brown.opacity(0.5), .orange.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        default: return LinearGradient(colors: [.gray.opacity(0.5), .black.opacity(0.7)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
+    }
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            ZStack {
+                Rectangle()
+                    .fill(filterGradient)
+                    .frame(height: 60)
+                    .cornerRadius(6)
+                    .overlay(
+                        Image(systemName: "camera.filters")
+                            .foregroundColor(.white.opacity(0.8))
+                            .font(.system(size: 20))
+                    )
+                
+                if isHovered && !isSelected {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.1))
+                        .frame(height: 60)
+                        .cornerRadius(6)
+                }
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+            )
+            
+            Text(simulation.rawValue
+                .replacingOccurrences(of: " (Standard)", with: "")
+                .replacingOccurrences(of: " (Vivid)", with: "")
+                .replacingOccurrences(of: " (Soft)", with: "")
+                .replacingOccurrences(of: " (Cinema)", with: "")
+            )
+            .font(.system(size: 9, weight: isSelected ? .bold : .regular))
+            .foregroundColor(isSelected ? .accentColor : .primary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .multilineTextAlignment(.center)
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+        .onTapGesture {
+            // Apply the simulation
+            if simulation != .none {
+                appState.adjustments.filmSimulation = simulation
+                appState.requestPreviewUpdate()
+            } else {
+                appState.adjustments.filmSimulation = .none
+                appState.requestPreviewUpdate()
+            }
         }
     }
 }

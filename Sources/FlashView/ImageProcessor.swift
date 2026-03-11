@@ -144,6 +144,34 @@ class ImageProcessor {
         return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
     
+    func generateFilmSimulationPreview(for url: URL, simulation: FilmSimulation, completion: @escaping (NSImage?) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 200
+            ]
+            
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                  let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            
+            let orientation = self.getExifOrientation(url: url)
+            let ciImage = CIImage(cgImage: cgImage).oriented(forExifOrientation: orientation)
+            let simulated = self.applyFilmSimulation(to: ciImage, simulation: simulation)
+            
+            guard let finalCG = self.ciContext.createCGImage(simulated, from: simulated.extent) else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            
+            let nsImage = NSImage(cgImage: finalCG, size: NSSize(width: finalCG.width, height: finalCG.height))
+            DispatchQueue.main.async { completion(nsImage) }
+        }
+    }
+    
     // MARK: - Background Removal (Vision Framework)
     
     private func removeBackground(from image: CIImage) -> CIImage? {
@@ -250,7 +278,7 @@ class ImageProcessor {
     
     // MARK: - Film Simulation Pipelines
     
-    private func applyFilmSimulation(to image: CIImage, simulation: FilmSimulation) -> CIImage {
+    func applyFilmSimulation(to image: CIImage, simulation: FilmSimulation) -> CIImage {
         switch simulation {
         case .none:
             return image

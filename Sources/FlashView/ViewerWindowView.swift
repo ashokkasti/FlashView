@@ -20,12 +20,16 @@ struct ViewerWindowView: View {
                     if appState.viewImages.isEmpty {
                         EmptyStateView()
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if appState.isGridViewActive {
+                        ImageGridView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(VisualEffectView(material: .underWindowBackground, blendingMode: .behindWindow))
                     } else {
                         GeometryReader { geometry in
                             VStack(spacing: 0) {
                                 MainPreviewView()
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                    .background(Color.black)
+                                    .background(VisualEffectView(material: .underPageBackground, blendingMode: .behindWindow))
                                 
                                 if !appState.isFullscreen {
                                     ThumbnailStripView()
@@ -97,41 +101,52 @@ struct MinimalToolbar: View {
     @EnvironmentObject var appState: AppState
     
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 16) {
             Button(action: {
                 withAnimation { appState.isSidebarVisible.toggle() }
             }) {
                 Image(systemName: "sidebar.left")
+                    .font(.title2)
             }
-            .buttonStyle(.borderless)
-            .padding(.leading, 12)
+            .buttonStyle(.plain)
+            .padding(.leading, 16)
             
             // Full folder path
             if let folder = appState.currentFolder {
-                Text(folder)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.head)
-            }
-            
-            if let filter = appState.selectedRatingFilter {
-                Text("(\(filter) Stars)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                HStack(spacing: 4) {
+                    Text((folder as NSString).lastPathComponent)
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                    
+                    if let filter = appState.selectedRatingFilter {
+                        Text("›")
+                            .foregroundColor(.secondary)
+                        Text(ratingLabel(filter))
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
             
             Spacer()
             
             // File name in the center
-            if let url = appState.currentImage {
-                Text(url.lastPathComponent)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+            if let url = appState.currentImage, !appState.isGridViewActive {
+                VStack(spacing: 2) {
+                    Text(url.lastPathComponent)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        
+                    if let size = appState.currentImageFileSize {
+                        Text(size)
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
             
             // Rating tag
-            if let r = appState.currentRating {
+            if let r = appState.currentRating, !appState.isGridViewActive {
                 Text(ratingLabel(r))
                     .font(.caption).bold()
                     .padding(.horizontal, 8)
@@ -141,62 +156,70 @@ struct MinimalToolbar: View {
                     .foregroundColor(r == 2 ? .black : .white)
             }
             
-            // Image counter & Size
-            if !appState.viewImages.isEmpty {
-                VStack(alignment: .trailing, spacing: 0) {
+            Spacer()
+            
+            // Icons on Right
+            HStack(spacing: 16) {
+                if !appState.viewImages.isEmpty {
                     Text("\(appState.currentIndex + 1)/\(appState.viewImages.count)")
                         .font(.caption)
                         .monospacedDigit()
-                    
-                    if let size = appState.currentImageFileSize {
-                        Text(size)
-                            .font(.system(size: 9))
-                            .foregroundColor(.secondary)
+                        .foregroundColor(.secondary)
+                }
+                
+                Button(action: {
+                    withAnimation { appState.isGridViewActive.toggle() }
+                }) {
+                    Image(systemName: appState.isGridViewActive ? "photo" : "square.grid.2x2")
+                        .font(.title3)
+                }
+                .buttonStyle(.plain)
+                .help("Toggle Grid View")
+                
+                Button(action: {
+                    appState.refreshFolder()
+                }) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.title3)
+                }
+                .buttonStyle(.plain)
+                .help("Refresh folder (⌘R)")
+                
+                Button(action: {
+                    appState.isCropRotateMode.toggle()
+                    if appState.isCropRotateMode && !appState.isInspectorVisible {
+                        appState.isInspectorVisible = true
                     }
+                }) {
+                    Image(systemName: "crop.rotate")
+                        .font(.title3)
+                        .foregroundColor(appState.isCropRotateMode ? .accentColor : .primary)
                 }
-            }
-            
-            Spacer()
-            
-            // Refresh button
-            Button(action: {
-                appState.refreshFolder()
-            }) {
-                Image(systemName: "arrow.clockwise")
-            }
-            .buttonStyle(.borderless)
-            .help("Refresh folder (⌘R)")
-            
-            Button(action: {
-                appState.isCropRotateMode.toggle()
-                if appState.isCropRotateMode && !appState.isInspectorVisible {
-                    appState.isInspectorVisible = true
+                .buttonStyle(.plain)
+                .help("Crop & Rotate")
+                
+                Button(action: {
+                    withAnimation { appState.isInspectorVisible.toggle() }
+                }) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.title3)
+                        .foregroundColor(appState.isInspectorVisible ? .accentColor : .primary)
                 }
-            }) {
-                Image(systemName: "crop.rotate")
-                    .foregroundColor(appState.isCropRotateMode ? .accentColor : .primary)
+                .buttonStyle(.plain)
+                .help("Show Adjustments")
+                
+                Button(action: {
+                    appState.isFullscreen.toggle()
+                }) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.title3)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.borderless)
-            .help("Crop & Rotate")
-            
-            Button(action: {
-                withAnimation { appState.isInspectorVisible.toggle() }
-            }) {
-                Image(systemName: "slider.horizontal.3")
-                    .foregroundColor(appState.isInspectorVisible ? .accentColor : .primary)
-            }
-            .buttonStyle(.borderless)
-            
-            Button(action: {
-                appState.isFullscreen.toggle()
-            }) {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
-            }
-            .buttonStyle(.borderless)
-            .padding(.trailing, 12)
+            .padding(.trailing, 16)
         }
-        .padding(.vertical, 8)
-        .background(Color(NSColor.windowBackgroundColor))
+        .padding(.vertical, 12)
+        .background(VisualEffectView(material: .titlebar, blendingMode: .withinWindow))
         .overlay(Divider(), alignment: .bottom)
     }
     
@@ -243,7 +266,52 @@ struct EmptyStateView: View {
                 appState.closeFolder()
             }
             .buttonStyle(.borderedProminent)
+            .controlSize(.large)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(VisualEffectView(material: .underWindowBackground, blendingMode: .behindWindow))
+    }
+}
+
+// MARK: - Grid View
+struct ImageGridView: View {
+    @EnvironmentObject var appState: AppState
+    
+    let columns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 20)]
+    
+    var body: some View {
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: 24) {
+                ForEach(Array(appState.viewImages.enumerated()), id: \.element) { index, url in
+                    VStack(spacing: 8) {
+                        ThumbnailItemView(
+                            url: url,
+                            isSelected: index == appState.currentIndex,
+                            rating: appState.imageRatings[url],
+                            reloadToken: appState.imageReloadToken
+                        )
+                        .frame(height: 140)
+                        
+                        Text(url.lastPathComponent)
+                            .font(.system(size: 11))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .padding(8)
+                    .background(index == appState.currentIndex ? Color.accentColor.opacity(0.15) : Color.clear)
+                    .cornerRadius(8)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        appState.selectImage(at: index)
+                        withAnimation { appState.isGridViewActive = false }
+                    }
+                    .contextMenu {
+                        Button("Copy Image") { appState.copyToClipboard(url: url) }
+                        Button("Share") { appState.shareItem(url: url) }
+                    }
+                }
+            }
+            .padding(24)
+        }
     }
 }

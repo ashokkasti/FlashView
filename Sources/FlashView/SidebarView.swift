@@ -59,6 +59,7 @@ struct SidebarView: View {
             .foregroundColor(.secondary)
             .padding(.vertical, 8)
         }
+        .background(VisualEffectView(material: .sidebar, blendingMode: .behindWindow))
     }
 }
 
@@ -128,6 +129,18 @@ struct FolderLabelView: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
+            Button("Copy Folder URL") {
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.writeObjects([URL(fileURLWithPath: path) as NSURL])
+            }
+            Button("Share") {
+                let sharingPicker = NSSharingServicePicker(items: [URL(fileURLWithPath: path)])
+                if let window = NSApp.keyWindow, let view = window.contentView {
+                    sharingPicker.show(relativeTo: .zero, of: view, preferredEdge: .minY)
+                }
+            }
+            Divider()
             Button("Remove from Recent") {
                 appState.folderManager.removeRecentFolder(path)
                 if appState.currentFolder == path {
@@ -181,6 +194,21 @@ struct FilterRowView: View {
         .contextMenu {
             Button("Download as ZIP") {
                 appState.exportBucketAsZip(rating: rating, folderPath: path)
+            }
+            Divider()
+            Button("Copy All Images") {
+                appState.copyBucketImages(rating: rating, folderPath: path)
+            }
+            Button("Copy Path") {
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.writeObjects([URL(fileURLWithPath: path) as NSURL])
+            }
+            Button("Share") {
+                let sharingPicker = NSSharingServicePicker(items: [URL(fileURLWithPath: path)])
+                if let window = NSApp.keyWindow, let view = window.contentView {
+                    sharingPicker.show(relativeTo: .zero, of: view, preferredEdge: .minY)
+                }
             }
         }
         .onHover { hovering in
