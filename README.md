@@ -13,7 +13,9 @@
 FlashView is a free, simple, fast image viewer and rater for macOS, built with SwiftUI.
 
 > [!IMPORTANT]
-> This is a vibe coded application. Please use with care.
+> This is a vibe coded application built for personal use. Please use with care.
+>
+> Feel free to fork it, make changes, and raise a PR — or just drop a system prompt in an issue and I can make changes quickly. Thank you!
 
 ## Why FlashView?
 
