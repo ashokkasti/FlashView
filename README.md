@@ -76,3 +76,7 @@ Contributions are welcome! If you find a bug or have a feature request, please o
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+> **⚠️ Disclaimer:** FlashView is a self-healing application, powered by [OpenClaw](https://openclaw.ai).
