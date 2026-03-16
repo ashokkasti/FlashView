@@ -13,7 +13,7 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable {
         case .system: return nil
         case .dark: return .dark
         case .light: return .light
-        case .eyeFriendly: return .dark
+        case .eyeFriendly: return .light
         }
     }
     
@@ -22,7 +22,7 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable {
         case .system: return .accentColor
         case .dark: return .blue
         case .light: return .blue
-        case .eyeFriendly: return Color(red: 0.85, green: 0.65, blue: 0.13) // warm amber
+        case .eyeFriendly: return Color(red: 0.85, green: 0.55, blue: 0.6) // soft pink
         }
     }
     
@@ -31,7 +31,7 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable {
         case .system: return Color(nsColor: .underPageBackgroundColor)
         case .dark: return Color(red: 0.11, green: 0.11, blue: 0.12)
         case .light: return Color(red: 0.96, green: 0.96, blue: 0.96)
-        case .eyeFriendly: return Color(red: 0.15, green: 0.13, blue: 0.10) // warm dark brown
+        case .eyeFriendly: return Color(red: 0.98, green: 0.95, blue: 0.95) // very light pink
         }
     }
     
@@ -40,7 +40,7 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable {
         case .system: return Color(nsColor: .headerTextColor).opacity(0.05)
         case .dark: return Color(red: 0.14, green: 0.14, blue: 0.16)
         case .light: return Color(red: 0.93, green: 0.93, blue: 0.93)
-        case .eyeFriendly: return Color(red: 0.18, green: 0.16, blue: 0.12)
+        case .eyeFriendly: return Color(red: 0.96, green: 0.92, blue: 0.92) // light pink sidebar
         }
     }
     
@@ -49,7 +49,7 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable {
         case .system: return .primary
         case .dark: return .white
         case .light: return .black
-        case .eyeFriendly: return Color(red: 0.95, green: 0.92, blue: 0.85)
+        case .eyeFriendly: return Color(red: 0.35, green: 0.25, blue: 0.28) // warm dark pink
         }
     }
     
@@ -58,7 +58,7 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable {
         case .system: return .secondary
         case .dark: return .gray
         case .light: return .gray
-        case .eyeFriendly: return Color(red: 0.72, green: 0.68, blue: 0.58)
+        case .eyeFriendly: return Color(red: 0.55, green: 0.45, blue: 0.48)
         }
     }
 }

@@ -84,29 +84,6 @@ struct RecentFoldersView: View {
             
             Spacer()
             
-            // Theme Picker on home screen
-            Menu {
-                ForEach(AppTheme.allCases) { theme in
-                    Button {
-                        ThemeManager.shared.selectedTheme = theme
-                    } label: {
-                        HStack {
-                            Text(theme.rawValue)
-                            if ThemeManager.shared.selectedTheme == theme {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "paintpalette")
-                    Text("Theme")
-                }
-                .font(.caption)
-            }
-            .menuStyle(.borderlessButton)
-            
             HStack {
                 Text("made with")
                 Image(systemName: "heart.fill")
