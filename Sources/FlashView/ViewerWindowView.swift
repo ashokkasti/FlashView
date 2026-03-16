@@ -208,6 +208,28 @@ struct MinimalToolbar: View {
                 .buttonStyle(.plain)
                 .help("Show Adjustments")
                 
+                // Theme Picker
+                Menu {
+                    ForEach(AppTheme.allCases) { theme in
+                        Button {
+                            ThemeManager.shared.selectedTheme = theme
+                        } label: {
+                            HStack {
+                                Text(theme.rawValue)
+                                if ThemeManager.shared.selectedTheme == theme {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "paintpalette")
+                        .font(.title3)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Change Theme")
+                
                 Button(action: {
                     appState.isFullscreen.toggle()
                 }) {
