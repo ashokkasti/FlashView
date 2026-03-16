@@ -1,5 +1,9 @@
 import SwiftUI
 
+extension Notification.Name {
+    static let openNewFolder = Notification.Name("openNewFolder")
+}
+
 @main
 struct FlashViewApp: App {
     @StateObject private var themeManager = ThemeManager.shared
@@ -39,6 +43,13 @@ struct FlashViewApp: App {
                         }
                     }
                 }
+            }
+            
+            CommandGroup(after: .newItem) {
+                Button("New Tab") {
+                    NotificationCenter.default.post(name: .openNewFolder, object: nil)
+                }
+                .keyboardShortcut("t", modifiers: .command)
             }
         }
     }

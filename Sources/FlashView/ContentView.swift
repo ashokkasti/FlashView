@@ -38,5 +38,8 @@ struct ContentView: View {
                 appState.openFile(at: url)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openNewFolder)) { _ in
+            appState.closeFolder()
+        }
     }
 }
