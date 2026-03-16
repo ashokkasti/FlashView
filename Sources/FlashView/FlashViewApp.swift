@@ -1,8 +1,5 @@
 import SwiftUI
-
-extension Notification.Name {
-    static let openNewFolder = Notification.Name("openNewFolder")
-}
+import AppKit
 
 @main
 struct FlashViewApp: App {
@@ -10,7 +7,7 @@ struct FlashViewApp: App {
     
     init() {
         // Enable macOS tabbed windows
-        NSWindow.allowsAutomaticTabbing = true
+        NSWindow.allowsAutomaticWindowTabbing = true
     }
     
     var body: some Scene {
@@ -23,6 +20,7 @@ struct FlashViewApp: App {
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("About FlashView") {
+                    let version = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0.0.5"
                     NSApplication.shared.orderFrontStandardAboutPanel(options: [
                         .credits: NSAttributedString(
                             string: "made with ❤️ in nepal",
@@ -32,7 +30,7 @@ struct FlashViewApp: App {
                             ]
                         ),
                         .applicationName: "FlashView" as NSString,
-                        .version: "0.0.5" as NSString,
+                        .version: version as NSString,
                     ])
                 }
             }
@@ -54,12 +52,16 @@ struct FlashViewApp: App {
             
             CommandGroup(after: .newItem) {
                 Button("New Tab") {
-                    NotificationCenter.default.post(name: .openNewFolder, object: nil)
+                    NSApp.keyWindow?.tabbingMode = .preferred
+                    NSApp.sendAction(#selector(NSWindow.newWindowForTab(_:)), to: nil, from: nil)
+                    DispatchQueue.main.async {
+                        NSApp.sendAction(#selector(NSWindow.mergeAllWindows(_:)), to: nil, from: nil)
+                    }
                 }
                 .keyboardShortcut("t", modifiers: .command)
                 
                 Button("Move Tab to New Window") {
-                    NSApp.keyWindow?.moveTab(to: nil, index: 0)
+                    NSApp.sendAction(#selector(NSWindow.moveTabToNewWindow(_:)), to: nil, from: nil)
                 }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
             }

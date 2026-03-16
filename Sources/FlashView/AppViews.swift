@@ -26,7 +26,7 @@ struct ScrollDetector: NSViewRepresentable {
                 self.monitor = nil
             }
             
-            if let window = newWindow {
+            if newWindow != nil {
                 monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
                     guard let self = self else { return event }
                     // Check if mouse is over this view

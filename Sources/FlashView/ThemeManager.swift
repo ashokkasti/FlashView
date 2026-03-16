@@ -21,7 +21,15 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable {
     /// Window-level tint — this is what actually makes eye-friendly look pink
     var windowTint: Color? {
         switch self {
-        case .eyeFriendly: return Color(red: 1.0, green: 0.88, blue: 0.90)
+        case .eyeFriendly: return Color(red: 1.0, green: 0.82, blue: 0.90)
+        default: return nil
+        }
+    }
+
+    /// Foreground overlay tint so eye-friendly is clearly distinguishable from plain light mode.
+    var overlayTint: Color? {
+        switch self {
+        case .eyeFriendly: return Color(red: 1.0, green: 0.80, blue: 0.89)
         default: return nil
         }
     }
@@ -47,6 +55,14 @@ struct WindowTintModifier: ViewModifier {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .allowsHitTesting(false)
             )
+            .overlay {
+                if let overlayTint = themeManager.theme.overlayTint {
+                    overlayTint
+                        .opacity(0.20)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                }
+            }
     }
 }
 
@@ -68,12 +84,13 @@ struct WindowTintView: NSViewRepresentable {
     }
     
     private func updateTint(_ view: NSVisualEffectView) {
+        view.wantsLayer = true
         if let tint = tint {
-            let nsColor = NSColor(tint).withAlphaComponent(0.15)
-            view.contentTintColor = nsColor
+            let nsColor = NSColor(tint).withAlphaComponent(0.36)
             view.material = .underWindowBackground
+            view.layer?.backgroundColor = nsColor.cgColor
         } else {
-            view.contentTintColor = nil
+            view.layer?.backgroundColor = NSColor.clear.cgColor
         }
     }
 }

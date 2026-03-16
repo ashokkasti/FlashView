@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct ContentView: View {
     @StateObject private var folderManager = FolderManager()
@@ -32,14 +33,32 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut, value: appState.currentFolder)
+        .background(WindowTabbingConfigurator())
         .onOpenURL { url in
             // Handle 'Open with FlashView'
             if url.isFileURL {
                 appState.openFile(at: url)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .openNewFolder)) { _ in
-            appState.closeFolder()
+    }
+}
+
+private struct WindowTabbingConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            if let window = view.window {
+                window.tabbingMode = .preferred
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            if let window = nsView.window {
+                window.tabbingMode = .preferred
+            }
         }
     }
 }
