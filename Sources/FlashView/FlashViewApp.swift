@@ -8,11 +8,18 @@ extension Notification.Name {
 struct FlashViewApp: App {
     @StateObject private var themeManager = ThemeManager.shared
     
+    init() {
+        // Enable macOS tabbed windows
+        NSWindow.allowsAutomaticTabbing = true
+    }
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .applyTheme()
+                .frame(minWidth: 800, minHeight: 600)
         }
+        .windowStyle(.titleBar)
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("About FlashView") {
@@ -25,7 +32,7 @@ struct FlashViewApp: App {
                             ]
                         ),
                         .applicationName: "FlashView" as NSString,
-                        .version: "0.0.4" as NSString,
+                        .version: "0.0.5" as NSString,
                     ])
                 }
             }
@@ -50,6 +57,11 @@ struct FlashViewApp: App {
                     NotificationCenter.default.post(name: .openNewFolder, object: nil)
                 }
                 .keyboardShortcut("t", modifiers: .command)
+                
+                Button("Move Tab to New Window") {
+                    NSApp.keyWindow?.moveTab(to: nil, index: 0)
+                }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
             }
         }
     }

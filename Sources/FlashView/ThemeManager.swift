@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 enum AppTheme: String, CaseIterable, Identifiable, Codable {
     case system = "System"
@@ -17,48 +18,11 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable {
         }
     }
     
-    var accent: Color {
+    /// Window-level tint — this is what actually makes eye-friendly look pink
+    var windowTint: Color? {
         switch self {
-        case .system: return .accentColor
-        case .dark: return .blue
-        case .light: return .blue
-        case .eyeFriendly: return Color(red: 0.85, green: 0.55, blue: 0.6) // soft pink
-        }
-    }
-    
-    var background: Color {
-        switch self {
-        case .system: return Color(nsColor: .underPageBackgroundColor)
-        case .dark: return Color(red: 0.11, green: 0.11, blue: 0.12)
-        case .light: return Color(red: 0.96, green: 0.96, blue: 0.96)
-        case .eyeFriendly: return Color(red: 0.98, green: 0.90, blue: 0.91) // noticeably pink
-        }
-    }
-    
-    var sidebarBackground: Color {
-        switch self {
-        case .system: return Color(nsColor: .headerTextColor).opacity(0.05)
-        case .dark: return Color(red: 0.14, green: 0.14, blue: 0.16)
-        case .light: return Color(red: 0.93, green: 0.93, blue: 0.93)
-        case .eyeFriendly: return Color(red: 0.95, green: 0.85, blue: 0.87) // pink sidebar
-        }
-    }
-    
-    var textPrimary: Color {
-        switch self {
-        case .system: return .primary
-        case .dark: return .white
-        case .light: return .black
-        case .eyeFriendly: return Color(red: 0.40, green: 0.20, blue: 0.25) // dark pink text
-        }
-    }
-    
-    var textSecondary: Color {
-        switch self {
-        case .system: return .secondary
-        case .dark: return .gray
-        case .light: return .gray
-        case .eyeFriendly: return Color(red: 0.60, green: 0.40, blue: 0.45)
+        case .eyeFriendly: return Color(red: 1.0, green: 0.88, blue: 0.90)
+        default: return nil
         }
     }
 }
@@ -69,4 +33,53 @@ class ThemeManager: ObservableObject {
     static let shared = ThemeManager()
     
     var theme: AppTheme { selectedTheme }
+}
+
+// MARK: - Window Tint Modifier (applies pink tint to entire window)
+struct WindowTintModifier: ViewModifier {
+    @ObservedObject var themeManager = ThemeManager.shared
+    
+    func body(content: Content) -> some View {
+        content
+            .preferredColorScheme(themeManager.theme.colorScheme)
+            .background(
+                WindowTintView(tint: themeManager.theme.windowTint)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .allowsHitTesting(false)
+            )
+    }
+}
+
+/// Uses NSVisualEffectView with a colored tint to shift the entire window appearance
+struct WindowTintView: NSViewRepresentable {
+    let tint: Color?
+    
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.blendingMode = .behindWindow
+        view.state = .active
+        view.material = .underWindowBackground
+        updateTint(view)
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        updateTint(nsView)
+    }
+    
+    private func updateTint(_ view: NSVisualEffectView) {
+        if let tint = tint {
+            let nsColor = NSColor(tint).withAlphaComponent(0.15)
+            view.contentTintColor = nsColor
+            view.material = .underWindowBackground
+        } else {
+            view.contentTintColor = nil
+        }
+    }
+}
+
+extension View {
+    func applyTheme() -> some View {
+        modifier(WindowTintModifier())
+    }
 }
