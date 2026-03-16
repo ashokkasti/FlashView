@@ -45,7 +45,7 @@ class MetadataManager {
             }
             
             // Get original metadata
-            guard var metadataDict = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any] else {
+            guard let metadataDict = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any] else {
                 return
             }
             

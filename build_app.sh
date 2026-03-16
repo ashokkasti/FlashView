@@ -1,6 +1,8 @@
 #!/bin/bash
+set -euo pipefail
 
 # Build the executable
+echo "Building for production..."
 swift build -c release
 
 # Create the app bundle structure
