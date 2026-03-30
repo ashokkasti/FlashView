@@ -58,6 +58,7 @@ struct ViewerWindowView: View {
                     Button("") { appState.refreshFolder() }.keyboardShortcut("r", modifiers: [.command])
                     
                     // Ratings 1=Bad, 2=Maybe, 3=Good
+                    Button("") { appState.applyRating(0) }.keyboardShortcut("0", modifiers: [])
                     Button("") { appState.applyRating(1) }.keyboardShortcut("1", modifiers: [])
                     Button("") { appState.applyRating(2) }.keyboardShortcut("2", modifiers: [])
                     Button("") { appState.applyRating(3) }.keyboardShortcut("3", modifiers: [])
@@ -225,6 +226,7 @@ struct MinimalToolbar: View {
     
     private func ratingLabel(_ r: Int) -> String {
         switch r {
+        case 0: return "Unrated"
         case 3: return "Good"
         case 2: return "Maybe"
         case 1: return "Bad"
@@ -234,6 +236,7 @@ struct MinimalToolbar: View {
     
     private func ratingColor(_ r: Int) -> Color {
         switch r {
+        case 0: return .gray
         case 3: return .green
         case 2: return .yellow
         case 1: return .red

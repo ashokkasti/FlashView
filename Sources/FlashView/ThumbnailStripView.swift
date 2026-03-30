@@ -121,7 +121,12 @@ struct ThumbnailItemView: View {
         .onAppear {
             loadThumbnail()
         }
+        .onDisappear {
+            // Release the decoded image when scrolled off-screen
+            thumbnail = nil
+        }
         .onChange(of: url) { _ in
+            thumbnail = nil
             loadThumbnail()
         }
         // Force reload when token changes (e.g. after save in place)

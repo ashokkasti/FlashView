@@ -13,6 +13,8 @@ class ImageProcessor {
     
     private let cacheDirectory: URL
     private let cache = NSCache<NSString, NSImage>()
+    private let cacheIndexQueue = DispatchQueue(label: "FlashView.ImageProcessor.CacheIndex")
+    private var thumbnailCacheKeysByPath: [String: Set<String>] = [:]
     
     // Singleton CIContext — expensive to create, GPU/ANE backed
     let ciContext: CIContext = {
@@ -32,143 +34,189 @@ class ImageProcessor {
         }
         
         self.cacheDirectory = appCachePath
+        cache.countLimit = 200
+        cache.totalCostLimit = 50 * 1024 * 1024
     }
     
     // MARK: - Cache Management
     
     /// Remove a specific URL from the thumbnail cache
     func invalidateCache(for url: URL) {
-        cache.removeObject(forKey: url.path as NSString)
+        let keysToRemove: [NSString] = cacheIndexQueue.sync {
+            let keys = thumbnailCacheKeysByPath.removeValue(forKey: url.path) ?? []
+            return keys.map { $0 as NSString }
+        }
+
+        if keysToRemove.isEmpty {
+            cache.removeObject(forKey: url.path as NSString)
+            return
+        }
+
+        for key in keysToRemove {
+            cache.removeObject(forKey: key)
+        }
     }
     
-    /// Clear all cached thumbnails
+    /// Clear all cached thumbnails and GPU caches
     func clearCache() {
+        cacheIndexQueue.sync {
+            thumbnailCacheKeysByPath.removeAll(keepingCapacity: false)
+        }
         cache.removeAllObjects()
+        ciContext.clearCaches()
+    }
+
+    /// Keep only thumbnail cache entries for the provided URLs.
+    func trimThumbnailCache(keeping urls: [URL]) {
+        let keepPaths = Set(urls.map { $0.path })
+        let keysToRemove: [NSString] = cacheIndexQueue.sync {
+            var remove: [NSString] = []
+            for (path, keys) in thumbnailCacheKeysByPath where !keepPaths.contains(path) {
+                remove.append(contentsOf: keys.map { $0 as NSString })
+                thumbnailCacheKeysByPath.removeValue(forKey: path)
+            }
+            return remove
+        }
+
+        for key in keysToRemove {
+            cache.removeObject(forKey: key)
+        }
+    }
+
+    /// Release transient Core Image resources between image navigations.
+    func flushTransientMemory() {
+        ciContext.clearCaches()
     }
     
     // MARK: - Thumbnail Generation
     
     func generateThumbnail(for url: URL, maxPixelSize: Int = 200, completion: @escaping (NSImage?) -> Void) {
         
-        let cacheKey = url.path as NSString
+        let cacheKey = "\(url.path)#\(maxPixelSize)" as NSString
         if let cachedImage = cache.object(forKey: cacheKey) {
             completion(cachedImage)
             return
         }
         
         DispatchQueue.global(qos: .userInitiated).async {
-            let options: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceShouldCacheImmediately: true,
-                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
-            ]
-            
-            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-                  let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-                DispatchQueue.main.async {
-                    completion(nil)
+            autoreleasepool {
+                let options: [CFString: Any] = [
+                    kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCache: false,
+                    kCGImageSourceShouldCacheImmediately: false,
+                    kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+                ]
+                
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                      let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+                    DispatchQueue.main.async {
+                        completion(nil)
+                    }
+                    return
                 }
-                return
-            }
-            
-            let nsImage = NSImage(cgImage: cgImage, size: .zero)
-            self.cache.setObject(nsImage, forKey: cacheKey)
-            
-            DispatchQueue.main.async {
-                completion(nsImage)
+                
+                let nsImage = NSImage(cgImage: cgImage, size: .zero)
+                let estimatedCost = cgImage.bytesPerRow * cgImage.height
+                self.cache.setObject(nsImage, forKey: cacheKey, cost: estimatedCost)
+                self.cacheIndexQueue.async {
+                    var keys = self.thumbnailCacheKeysByPath[url.path] ?? []
+                    keys.insert(cacheKey as String)
+                    self.thumbnailCacheKeysByPath[url.path] = keys
+                }
+                
+                DispatchQueue.main.async {
+                    completion(nsImage)
+                }
             }
         }
     }
     
-    func loadLargeImage(from url: URL) -> NSImage? {
-        // Use CIImage to ensure high quality and consistency with the processing pipeline
-        // Explicitly apply orientation from metadata so it matches the thumbnail
-        guard var ciImage = CIImage(contentsOf: url)?.oriented(forExifOrientation: getExifOrientation(url: url)) else {
-            return NSImage(contentsOf: url) // Minimal fallback
-        }
-        
-        let outputExtent = ciImage.extent
-        let maxDim: CGFloat = 4096
-        
-        if outputExtent.width > maxDim || outputExtent.height > maxDim {
-            let scale = maxDim / max(outputExtent.width, outputExtent.height)
-            if let filter = CIFilter(name: "CILanczosScaleTransform") {
-                filter.setValue(ciImage, forKey: kCIInputImageKey)
-                filter.setValue(scale, forKey: kCIInputScaleKey)
-                if let output = filter.outputImage {
-                    ciImage = output
-                }
+    func loadLargeImage(from url: URL, maxPixelSize: Int = 2048) -> NSImage? {
+        return autoreleasepool {
+            let maxPixelSize = maxPixelSize
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCache: false,
+                kCGImageSourceShouldCacheImmediately: false,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+            ]
+
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                  let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+                return NSImage(contentsOf: url)
             }
+
+            return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
         }
-        
-        let finalExtent = ciImage.extent
-        guard let cgImage = ciContext.createCGImage(ciImage, from: finalExtent) else {
-            return NSImage(contentsOf: url)
-        }
-        
-        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
     
     // MARK: - Full CIImage Processing Pipeline
     
     /// Process image through the full pipeline: manual adjustments → film simulation → background removal → crop → rotate
     func processImage(url: URL, adjustments: ImageAdjustments) -> NSImage? {
-        guard let ciImage = CIImage(contentsOf: url)?.oriented(forExifOrientation: getExifOrientation(url: url)) else { return nil }
-        
-        var image = ciImage
-        
-        // Step 1: Apply manual adjustments first
-        image = applyManualAdjustments(to: image, adjustments: adjustments)
-        
-        // Step 2: Apply film simulation on top
-        image = applyFilmSimulation(to: image, simulation: adjustments.filmSimulation)
-        
-        // Step 3: Background removal (before crop/rotate so mask aligns with original geometry)
-        if adjustments.backgroundRemoved {
-            if let masked = removeBackground(from: image) {
-                image = masked
+        return autoreleasepool {
+            guard let ciImage = CIImage(contentsOf: url)?.oriented(forExifOrientation: getExifOrientation(url: url)) else { return nil }
+            
+            var image = ciImage
+            
+            // Step 1: Apply manual adjustments first
+            image = applyManualAdjustments(to: image, adjustments: adjustments)
+            
+            // Step 2: Apply film simulation on top
+            image = applyFilmSimulation(to: image, simulation: adjustments.filmSimulation)
+            
+            // Step 3: Background removal (before crop/rotate so mask aligns with original geometry)
+            if adjustments.backgroundRemoved {
+                if let masked = removeBackground(from: image) {
+                    image = masked
+                }
             }
+            
+            // Step 4: Apply rotation
+            image = applyRotation(to: image, steps: adjustments.rotationSteps, freeAngle: adjustments.rotationAngle)
+            
+            // Step 5: Apply crop
+            image = applyCrop(to: image, normalizedRect: adjustments.cropRect)
+            
+            // Final: Render CIImage → CGImage → NSImage
+            let outputExtent = image.extent
+            guard let cgImage = ciContext.createCGImage(image, from: outputExtent) else { return nil }
+            
+            return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
         }
-        
-        // Step 4: Apply rotation
-        image = applyRotation(to: image, steps: adjustments.rotationSteps, freeAngle: adjustments.rotationAngle)
-        
-        // Step 5: Apply crop
-        image = applyCrop(to: image, normalizedRect: adjustments.cropRect)
-        
-        // Final: Render CIImage → CGImage → NSImage
-        let outputExtent = image.extent
-        guard let cgImage = ciContext.createCGImage(image, from: outputExtent) else { return nil }
-        
-        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
     
     func generateFilmSimulationPreview(for url: URL, simulation: FilmSimulation, completion: @escaping (NSImage?) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
-            let options: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: 200
-            ]
-            
-            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-                  let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-                DispatchQueue.main.async { completion(nil) }
-                return
+            autoreleasepool {
+                let options: [CFString: Any] = [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCache: false,
+                    kCGImageSourceShouldCacheImmediately: false,
+                    kCGImageSourceThumbnailMaxPixelSize: 200
+                ]
+                
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                      let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+                    DispatchQueue.main.async { completion(nil) }
+                    return
+                }
+                
+                let orientation = self.getExifOrientation(url: url)
+                let ciImage = CIImage(cgImage: cgImage).oriented(forExifOrientation: orientation)
+                let simulated = self.applyFilmSimulation(to: ciImage, simulation: simulation)
+                
+                guard let finalCG = self.ciContext.createCGImage(simulated, from: simulated.extent) else {
+                    DispatchQueue.main.async { completion(nil) }
+                    return
+                }
+                
+                let nsImage = NSImage(cgImage: finalCG, size: NSSize(width: finalCG.width, height: finalCG.height))
+                DispatchQueue.main.async { completion(nsImage) }
             }
-            
-            let orientation = self.getExifOrientation(url: url)
-            let ciImage = CIImage(cgImage: cgImage).oriented(forExifOrientation: orientation)
-            let simulated = self.applyFilmSimulation(to: ciImage, simulation: simulation)
-            
-            guard let finalCG = self.ciContext.createCGImage(simulated, from: simulated.extent) else {
-                DispatchQueue.main.async { completion(nil) }
-                return
-            }
-            
-            let nsImage = NSImage(cgImage: finalCG, size: NSSize(width: finalCG.width, height: finalCG.height))
-            DispatchQueue.main.async { completion(nsImage) }
         }
     }
     

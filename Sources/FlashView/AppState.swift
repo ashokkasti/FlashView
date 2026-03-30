@@ -130,9 +130,13 @@ class AppState: ObservableObject {
     let folderManager: FolderManager
     private var processingTask: DispatchWorkItem?
     private var loadingTask: DispatchWorkItem?
+    private var navigationCounter: Int = 0
     
     var viewImages: [URL] {
         if let filter = selectedRatingFilter {
+            if filter == 0 {
+                return images.filter { (imageRatings[$0] ?? 0) == 0 }
+            }
             return images.filter { imageRatings[$0] == filter }
         }
         return images
@@ -170,18 +174,34 @@ class AppState: ObservableObject {
     
     func applyRating(_ rating: Int) {
         guard let url = currentImage, let path = currentFolder else { return }
+        let normalizedRating: Int? = rating == 0 ? nil : rating
         let oldRating = imageRatings[url]
-        MetadataManager.shared.setRating(for: url, rating: rating)
+        MetadataManager.shared.setRating(for: url, rating: normalizedRating)
         
-        imageRatings[url] = rating
-        currentRating = rating
-        folderManager.updateCount(for: path, oldRating: oldRating, newRating: rating)
+        if let normalizedRating {
+            imageRatings[url] = normalizedRating
+            currentRating = normalizedRating
+        } else {
+            imageRatings.removeValue(forKey: url)
+            currentRating = nil
+        }
+
+        folderManager.updateCount(for: path, oldRating: oldRating, newRating: normalizedRating)
         
-        let label = rating == 3 ? "Good" : (rating == 2 ? "Maybe" : "Bad")
+        let label: String
+        if rating == 3 {
+            label = "Good"
+        } else if rating == 2 {
+            label = "Maybe"
+        } else if rating == 1 {
+            label = "Bad"
+        } else {
+            label = "Unrated"
+        }
         showToast("Rated: \(label)")
         
         // If image drops out of current filter bucket, don't move next index
-        if selectedRatingFilter != nil && selectedRatingFilter != rating {
+        if selectedRatingFilter != nil && !matchesCurrentFilter(normalizedRating) {
             DispatchQueue.main.async {
                 let list = self.viewImages
                 if self.currentIndex >= list.count {
@@ -194,11 +214,20 @@ class AppState: ObservableObject {
             nextImage()
         }
     }
+
+    private func matchesCurrentFilter(_ rating: Int?) -> Bool {
+        guard let filter = selectedRatingFilter else { return true }
+        if filter == 0 {
+            return rating == nil || rating == 0
+        }
+        return rating == filter
+    }
     
     // MARK: - Processing Pipeline
     
     func requestPreviewUpdate() {
         processingTask?.cancel()
+        processingTask = nil
         
         guard let url = currentImage else {
             processedPreviewImage = nil
@@ -207,6 +236,7 @@ class AppState: ObservableObject {
         }
         
         let currentAdjustments = adjustments
+        let expectedIndex = currentIndex
         
         // Show processing state immediately
         isProcessing = true
@@ -215,9 +245,16 @@ class AppState: ObservableObject {
             guard let self = self else { return }
             let result = ImageProcessor.shared.processImage(url: url, adjustments: currentAdjustments)
             DispatchQueue.main.async {
-                if self.adjustments == currentAdjustments && self.currentImage == url {
-                    self.processedPreviewImage = result
+                // Only apply if user hasn't navigated away
+                guard self.currentIndex == expectedIndex,
+                      self.adjustments == currentAdjustments,
+                      self.currentImage == url else {
+                    // Stale result — discard
+                    self.isProcessing = false
+                    self.isRemovingBackground = false
+                    return
                 }
+                self.processedPreviewImage = result
                 self.isProcessing = false
                 self.isRemovingBackground = false
             }
@@ -304,7 +341,15 @@ class AppState: ObservableObject {
     // MARK: - Export Bucket to ZIP
     
     func exportBucketAsZip(rating: Int?, folderPath: String) {
-        let list = (rating == nil) ? images : images.filter { imageRatings[$0] == rating }
+        let list: [URL]
+        if rating == nil {
+            list = images
+        } else if rating == 0 {
+            list = images.filter { (imageRatings[$0] ?? 0) == 0 }
+        } else {
+            list = images.filter { imageRatings[$0] == rating }
+        }
+
         guard !list.isEmpty else {
             showToast("Bucket is empty")
             return
@@ -312,7 +357,18 @@ class AppState: ObservableObject {
         
         let savePanel = NSSavePanel()
         savePanel.allowedContentTypes = [.zip]
-        let ratingName = rating == nil ? "All" : (rating == 3 ? "Good" : (rating == 2 ? "Maybe" : "Bad"))
+        let ratingName: String
+        if rating == nil {
+            ratingName = "All"
+        } else if rating == 0 {
+            ratingName = "Unrated"
+        } else if rating == 3 {
+            ratingName = "Good"
+        } else if rating == 2 {
+            ratingName = "Maybe"
+        } else {
+            ratingName = "Bad"
+        }
         let folderName = (folderPath as NSString).lastPathComponent
         savePanel.nameFieldStringValue = "\(folderName)_\(ratingName)_Photos.zip"
         
@@ -433,6 +489,8 @@ class AppState: ObservableObject {
         self.isSlideshowActive = false
         self.processedPreviewImage = nil
         self.isCropRotateMode = false
+        ImageProcessor.shared.clearCache()
+        ImageProcessor.shared.flushTransientMemory()
     }
     
     var currentImage: URL? {
@@ -445,11 +503,30 @@ class AppState: ObservableObject {
     
     func selectImage(at index: Int) {
         guard index >= 0 && index < viewImages.count else { return }
+        
+        // Cancel any in-flight processing task before switching images
+        processingTask?.cancel()
+        processingTask = nil
+        
         currentIndex = index
+        navigationCounter += 1
         updateCurrentMetadata()
         adjustments = ImageAdjustments()
         isCropRotateMode = false
         processedPreviewImage = nil
+
+        // Aggressively trim thumbnail cache and flush GPU resources on every navigation
+        let list = viewImages
+        if !list.isEmpty {
+            let lower = max(0, index - 50)
+            let upper = min(list.count - 1, index + 50)
+            let keepURLs = Array(list[lower...upper])
+
+            DispatchQueue.global(qos: .utility).async {
+                ImageProcessor.shared.trimThumbnailCache(keeping: keepURLs)
+                ImageProcessor.shared.flushTransientMemory()
+            }
+        }
         
         // Update file size
         if let url = currentImage {
@@ -506,7 +583,8 @@ class AppState: ObservableObject {
             self.currentRating = nil
             return
         }
-        self.currentRating = imageRatings[url]
+        let rating = imageRatings[url]
+        self.currentRating = (rating ?? 0) > 0 ? rating : nil
     }
     
     // MARK: - Crop & Rotate Helpers
@@ -535,13 +613,8 @@ class AppState: ObservableObject {
     func copyToClipboard(url: URL) {
         let pb = NSPasteboard.general
         pb.clearContents()
-        
-        var objects: [NSPasteboardWriting] = [url as NSURL]
-        if let image = NSImage(contentsOf: url) {
-            objects.append(image)
-        }
-        
-        pb.writeObjects(objects)
+        // Write only the file URL — avoids decoding the full image into memory
+        pb.writeObjects([url as NSURL])
         showToast("Copied to clipboard")
     }
     
@@ -563,7 +636,11 @@ class AppState: ObservableObject {
                         cachedRatings[u] = rating
                     }
                 }
-                bucketUrls = bucketUrls.filter { cachedRatings[$0] == r }
+                if r == 0 {
+                    bucketUrls = bucketUrls.filter { (cachedRatings[$0] ?? 0) == 0 }
+                } else {
+                    bucketUrls = bucketUrls.filter { cachedRatings[$0] == r }
+                }
             }
             
             let pb = NSPasteboard.general
