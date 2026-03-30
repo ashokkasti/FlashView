@@ -3,6 +3,9 @@ import AppKit
 import SwiftUI
 
 class FolderManager: ObservableObject {
+    static let allCountKey = -1
+    static let unratedCountKey = 0
+
     @Published var recentFolders: [String] = []
     
     private let maxRecentFolders = 10
@@ -97,8 +100,11 @@ class FolderManager: ObservableObject {
     func loadCounts(for path: String, imageRatings: [URL: Int]? = nil) {
         if let ratings = imageRatings {
             let total = getImagesInFolder(path).count
-            var counts = [0: total]
-            for r in ratings.values { counts[r, default: 0] += 1 }
+            var counts = [FolderManager.allCountKey: total, FolderManager.unratedCountKey: total]
+            for r in ratings.values where r > 0 {
+                counts[r, default: 0] += 1
+                counts[FolderManager.unratedCountKey, default: 0] = max(0, (counts[FolderManager.unratedCountKey] ?? 0) - 1)
+            }
             folderCounts[path] = counts
         } else {
             // Check if we already have it
@@ -106,10 +112,11 @@ class FolderManager: ObservableObject {
             
             DispatchQueue.global(qos: .userInitiated).async {
                 let images = self.getImagesInFolder(path)
-                var counts = [0: images.count]
+                var counts = [FolderManager.allCountKey: images.count, FolderManager.unratedCountKey: images.count]
                 for url in images {
-                    if let r = MetadataManager.shared.getRating(for: url) {
+                    if let r = MetadataManager.shared.getRating(for: url), r > 0 {
                         counts[r, default: 0] += 1
+                        counts[FolderManager.unratedCountKey, default: 0] = max(0, (counts[FolderManager.unratedCountKey] ?? 0) - 1)
                     }
                 }
                 DispatchQueue.main.async { self.folderCounts[path] = counts }
@@ -118,13 +125,31 @@ class FolderManager: ObservableObject {
     }
     
     func updateCount(for path: String, oldRating: Int?, newRating: Int?) {
-        var counts = folderCounts[path] ?? [0: getImagesInFolder(path).count]
-        if let old = oldRating {
+        let normalizedOld = (oldRating ?? 0) > 0 ? oldRating : nil
+        let normalizedNew = (newRating ?? 0) > 0 ? newRating : nil
+
+        var counts = folderCounts[path] ?? [
+            FolderManager.allCountKey: getImagesInFolder(path).count,
+            FolderManager.unratedCountKey: getImagesInFolder(path).count
+        ]
+
+        if normalizedOld == normalizedNew {
+            folderCounts[path] = counts
+            return
+        }
+
+        if let old = normalizedOld {
             counts[old] = max(0, (counts[old] ?? 0) - 1)
+        } else if normalizedNew != nil {
+            counts[FolderManager.unratedCountKey] = max(0, (counts[FolderManager.unratedCountKey] ?? 0) - 1)
         }
-        if let new = newRating {
+
+        if let new = normalizedNew {
             counts[new] = (counts[new] ?? 0) + 1
+        } else if normalizedOld != nil {
+            counts[FolderManager.unratedCountKey] = (counts[FolderManager.unratedCountKey] ?? 0) + 1
         }
+
         folderCounts[path] = counts
     }
 }

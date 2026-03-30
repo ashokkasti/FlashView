@@ -7,6 +7,8 @@ struct MainPreviewView: View {
     @State private var lastScale: CGFloat = 1.0
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
+    /// Generation counter — incremented every navigation so stale decode tasks discard results
+    @State private var loadGeneration: UInt64 = 0
     
     var body: some View {
         ZStack {
@@ -23,9 +25,6 @@ struct MainPreviewView: View {
                         .aspectRatio(contentMode: .fit)
                         .scaleEffect(scale)
                         .offset(offset)
-                        .id(imageId)
-                        .transition(.opacity)
-                        .animation(.easeInOut(duration: 0.1), value: appState.currentImage)
                     
                     // Invisible overlay to catch scroll events for zoom
                     ScrollDetector { delta in
@@ -73,6 +72,8 @@ struct MainPreviewView: View {
                         }
                     }
                     .contextMenu {
+                        Button("Unrate (0)") { appState.applyRating(0) }
+                        Divider()
                         Button("Good (3)") { appState.applyRating(3) }
                         Button("Maybe (2)") { appState.applyRating(2) }
                         Button("Bad (1)") { appState.applyRating(1) }
@@ -108,13 +109,8 @@ struct MainPreviewView: View {
         }
         .onChange(of: appState.currentImage) { newImage in
             resetZoom()
-            loadedImage = nil // Immediate clear for smoother transition
+            loadedImage = nil
             loadImage(url: newImage)
-        }
-        .onChange(of: appState.currentIndex) { _ in
-            resetZoom()
-            loadedImage = nil // Immediate clear
-            loadImage(url: appState.currentImage)
         }
         .onChange(of: appState.imageReloadToken) { _ in
             loadImage(url: appState.currentImage)
@@ -150,29 +146,38 @@ struct MainPreviewView: View {
     }
     
     private var imageId: String {
-        let base = appState.currentImage?.absoluteString ?? ""
-        let adj = appState.adjustments
-        return "\(base)_\(adj.filmSimulation.rawValue)_\(adj.exposure)_\(adj.contrast)_\(adj.saturation)_\(adj.rotationSteps)_\(adj.rotationAngle)_\(adj.backgroundRemoved)"
+        appState.currentImage?.absoluteString ?? ""
     }
     
     @State private var loadingTask: DispatchWorkItem?
     
     private func loadImage(url: URL?) {
+        // Cancel any in-flight decode
         loadingTask?.cancel()
+        loadingTask = nil
+        
+        // Bump generation so any already-running decode discards its result
+        loadGeneration &+= 1
+        let expectedGeneration = loadGeneration
         
         guard let url = url else {
             loadedImage = nil
             return
         }
         
-        // Small debounce for rapid scrolling
-        let task = DispatchWorkItem {
-            let img = ImageProcessor.shared.loadLargeImage(from: url)
-            DispatchQueue.main.async {
-                // Only update if the user hasn't moved to another image yet
-                if appState.currentImage == url {
-                    self.loadedImage = img
+        let task = DispatchWorkItem { [weak appState] in
+            // Decode inside autoreleasepool so transient buffers are freed immediately
+            let img: NSImage? = autoreleasepool {
+                ImageProcessor.shared.loadLargeImage(from: url)
+            }
+            DispatchQueue.main.async { [weak appState] in
+                // Only apply if we're still on the same navigation generation
+                guard self.loadGeneration == expectedGeneration,
+                      appState?.currentImage == url else {
+                    // Discard stale decode — img released here
+                    return
                 }
+                self.loadedImage = img
             }
         }
         

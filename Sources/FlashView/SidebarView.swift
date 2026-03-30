@@ -90,7 +90,9 @@ struct FolderOutlineView: View {
             ),
             content: {
                 if effectiveExpanded {
-                    FilterRowView(title: "All", count: counts[0] ?? 0, rating: nil, path: path, onFilterSelect: onFilterSelect)
+                    FilterRowView(title: "All", count: counts[FolderManager.allCountKey] ?? 0, rating: nil, path: path, onFilterSelect: onFilterSelect)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 4))
+                    FilterRowView(title: "Unrated", count: counts[FolderManager.unratedCountKey] ?? 0, rating: 0, color: .secondary, path: path, onFilterSelect: onFilterSelect)
                         .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 4))
                     FilterRowView(title: "Good", count: counts[3] ?? 0, rating: 3, color: .green, path: path, onFilterSelect: onFilterSelect)
                         .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 4))
@@ -115,19 +117,19 @@ struct FolderLabelView: View {
     @State private var isHovered = false
     
     var body: some View {
-        Button(action: onSelect) {
-            HStack {
-                Image(systemName: "folder")
-                Text((path as NSString).lastPathComponent)
-                Spacer()
-            }
-            .padding(.vertical, 2)
-            .padding(.horizontal, 6)
-            .contentShape(Rectangle())
-            .background(isSelected && appState.selectedRatingFilter == nil ? Color.gray.opacity(0.4) : (isHovered ? Color.gray.opacity(0.2) : Color.clear))
-            .cornerRadius(4)
+        HStack {
+            Image(systemName: "folder")
+            Text((path as NSString).lastPathComponent)
+            Spacer()
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 2)
+        .padding(.horizontal, 6)
+        .contentShape(Rectangle())
+        .background(isSelected && appState.selectedRatingFilter == nil ? Color.gray.opacity(0.4) : (isHovered ? Color.gray.opacity(0.2) : Color.clear))
+        .cornerRadius(4)
+        .onTapGesture {
+            onSelect()
+        }
         .contextMenu {
             Button("Copy Folder URL") {
                 let pb = NSPasteboard.general
