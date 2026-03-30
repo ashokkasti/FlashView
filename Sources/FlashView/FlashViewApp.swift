@@ -20,7 +20,7 @@ struct FlashViewApp: App {
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("About FlashView") {
-                    let version = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0.0.5"
+                    let version = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0.0.6"
                     NSApplication.shared.orderFrontStandardAboutPanel(options: [
                         .credits: NSAttributedString(
                             string: "made with ❤️ in nepal",
