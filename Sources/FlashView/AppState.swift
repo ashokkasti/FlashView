@@ -126,6 +126,7 @@ class AppState: ObservableObject {
     
     // Configuration
     @Published var skipSaveInPlaceConfirmation: Bool = false
+    @Published var showDeleteConfirmation: Bool = false
     
     let folderManager: FolderManager
     private var processingTask: DispatchWorkItem?
@@ -241,15 +242,16 @@ class AppState: ObservableObject {
         // Show processing state immediately
         isProcessing = true
         
-        let task = DispatchWorkItem { [weak self] in
-            guard let self = self else { return }
+        var task: DispatchWorkItem!
+        task = DispatchWorkItem { [weak self] in
+            guard let self = self, !task.isCancelled else { task = nil; return }
             let result = ImageProcessor.shared.processImage(url: url, adjustments: currentAdjustments)
+            guard !task.isCancelled else { task = nil; return }
             DispatchQueue.main.async {
                 // Only apply if user hasn't navigated away
                 guard self.currentIndex == expectedIndex,
                       self.adjustments == currentAdjustments,
                       self.currentImage == url else {
-                    // Stale result — discard
                     self.isProcessing = false
                     self.isRemovingBackground = false
                     return
@@ -258,9 +260,10 @@ class AppState: ObservableObject {
                 self.isProcessing = false
                 self.isRemovingBackground = false
             }
+            task = nil // break retain cycle
         }
         processingTask = task
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.06, execute: task)
+        ImageProcessor.shared.previewDecodeQueue.asyncAfter(deadline: .now() + 0.06, execute: task)
     }
     
     // MARK: - Background Removal
@@ -518,8 +521,8 @@ class AppState: ObservableObject {
         // Aggressively trim thumbnail cache and flush GPU resources on every navigation
         let list = viewImages
         if !list.isEmpty {
-            let lower = max(0, index - 50)
-            let upper = min(list.count - 1, index + 50)
+            let lower = max(0, index - 15)
+            let upper = min(list.count - 1, index + 15)
             let keepURLs = Array(list[lower...upper])
 
             DispatchQueue.global(qos: .utility).async {
@@ -554,7 +557,16 @@ class AppState: ObservableObject {
     }
     
     func deleteCurrentImage() {
-        guard let currentUrl = currentImage else { return }
+        guard currentImage != nil else { return }
+        showDeleteConfirmation = true
+    }
+
+    func confirmDeleteCurrentImage() {
+        guard let currentUrl = currentImage else {
+            showDeleteConfirmation = false
+            return
+        }
+        showDeleteConfirmation = false
         
         do {
             try FileManager.default.trashItem(at: currentUrl, resultingItemURL: nil)

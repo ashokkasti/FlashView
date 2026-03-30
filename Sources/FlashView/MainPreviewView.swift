@@ -152,7 +152,7 @@ struct MainPreviewView: View {
     @State private var loadingTask: DispatchWorkItem?
     
     private func loadImage(url: URL?) {
-        // Cancel any in-flight decode
+        // Cancel any in-flight decode — sets isCancelled so the work item can skip the heavy decode
         loadingTask?.cancel()
         loadingTask = nil
         
@@ -165,24 +165,36 @@ struct MainPreviewView: View {
             return
         }
         
-        let task = DispatchWorkItem { [weak appState] in
+        // We need the work item to check its own isCancelled, so create a var first
+        var workItem: DispatchWorkItem!
+        workItem = DispatchWorkItem { [weak appState] in
+            // **KEY FIX**: Exit immediately if cancelled while waiting in the serial queue.
+            // This prevents decoding images for photos the user already scrolled past.
+            guard !workItem.isCancelled else { workItem = nil; return }
+            
             // Decode inside autoreleasepool so transient buffers are freed immediately
             let img: NSImage? = autoreleasepool {
                 ImageProcessor.shared.loadLargeImage(from: url)
             }
+            
+            // Check again after decode — user may have navigated during the decode
+            guard !workItem.isCancelled else { workItem = nil; return }
+            
             DispatchQueue.main.async { [weak appState] in
                 // Only apply if we're still on the same navigation generation
                 guard self.loadGeneration == expectedGeneration,
                       appState?.currentImage == url else {
-                    // Discard stale decode — img released here
                     return
                 }
                 self.loadedImage = img
             }
+            workItem = nil // break retain cycle
         }
         
-        loadingTask = task
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.05, execute: task)
+        loadingTask = workItem
+        
+        // Debounce 150ms + serial queue = at most 1 decode in flight, rapid navigation skips intermediates
+        ImageProcessor.shared.previewDecodeQueue.asyncAfter(deadline: .now() + 0.15, execute: workItem)
     }
 }
 

@@ -74,6 +74,16 @@ struct ViewerWindowView: View {
                     appState.nextImage()
                 }
             }
+            .alert("Delete this photo?", isPresented: $appState.showDeleteConfirmation) {
+                Button("Yes", role: .destructive) {
+                    appState.confirmDeleteCurrentImage()
+                }
+                .keyboardShortcut(.defaultAction)
+
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This will move the current photo to Trash.")
+            }
             
             // MARK: - Processing Overlay (blocks interaction while processing)
             if appState.isProcessing {

@@ -16,6 +16,9 @@ class ImageProcessor {
     private let cacheIndexQueue = DispatchQueue(label: "FlashView.ImageProcessor.CacheIndex")
     private var thumbnailCacheKeysByPath: [String: Set<String>] = [:]
     
+    /// Serial queue for main preview image decoding — ensures at most 1 decode in flight
+    let previewDecodeQueue = DispatchQueue(label: "FlashView.ImageProcessor.PreviewDecode", qos: .userInitiated, autoreleaseFrequency: .workItem)
+    
     // Singleton CIContext — expensive to create, GPU/ANE backed
     let ciContext: CIContext = {
         return CIContext(options: [
@@ -34,8 +37,8 @@ class ImageProcessor {
         }
         
         self.cacheDirectory = appCachePath
-        cache.countLimit = 200
-        cache.totalCostLimit = 50 * 1024 * 1024
+        cache.countLimit = 50
+        cache.totalCostLimit = 20 * 1024 * 1024
     }
     
     // MARK: - Cache Management
@@ -87,7 +90,33 @@ class ImageProcessor {
     func flushTransientMemory() {
         ciContext.clearCaches()
     }
-    
+
+    /// Create an NSImage whose pixel data is fully independent of the original CGImageSource.
+    /// CGImages from CGImageSourceCreateThumbnailAtIndex retain the *entire* source file data
+    /// (20-50 MB per RAW/JPEG) through the data-provider chain.  Drawing into a fresh
+    /// CGContext severs that link so only the decoded pixels remain (e.g. 160 KB for a 200px thumb).
+    private func detachedNSImage(from cgImage: CGImage) -> NSImage {
+        let w = cgImage.width
+        let h = cgImage.height
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: nil,
+            width: w,
+            height: h,
+            bitsPerComponent: 8,
+            bytesPerRow: w * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        ) else {
+            return NSImage(cgImage: cgImage, size: NSSize(width: w, height: h))
+        }
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
+        guard let copy = ctx.makeImage() else {
+            return NSImage(cgImage: cgImage, size: NSSize(width: w, height: h))
+        }
+        return NSImage(cgImage: copy, size: NSSize(width: w, height: h))
+    }
+
     // MARK: - Thumbnail Generation
     
     func generateThumbnail(for url: URL, maxPixelSize: Int = 200, completion: @escaping (NSImage?) -> Void) {
@@ -116,8 +145,8 @@ class ImageProcessor {
                     return
                 }
                 
-                let nsImage = NSImage(cgImage: cgImage, size: .zero)
-                let estimatedCost = cgImage.bytesPerRow * cgImage.height
+                let nsImage = self.detachedNSImage(from: cgImage)
+                let estimatedCost = cgImage.width * cgImage.height * 4
                 self.cache.setObject(nsImage, forKey: cacheKey, cost: estimatedCost)
                 self.cacheIndexQueue.async {
                     var keys = self.thumbnailCacheKeysByPath[url.path] ?? []
@@ -148,7 +177,8 @@ class ImageProcessor {
                 return NSImage(contentsOf: url)
             }
 
-            return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+            // Detach from CGImageSource data provider so the full source file isn't retained
+            return detachedNSImage(from: cgImage)
         }
     }
     

@@ -40,21 +40,6 @@ class MetadataManager {
 
         // Run on background thread to avoid blocking UI
         DispatchQueue.global(qos: .userInitiated).async {
-            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-                  let type = CGImageSourceGetType(source) else {
-                return
-            }
-            
-            // Get original metadata
-            guard let metadataDict = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any] else {
-                return
-            }
-            
-            // Insert or update TIFF rating (Standard EXIF/TIFF doesn't have a 100% standard rating, 
-            // but often people use IPTC or XMP. We'll use IPTC and custom XMP dictionary keys.
-            // For simplicity in MVP, we might just store it in macOS extended attributes if CGImageDestination is too slow/destructive.
-            // Let's use file extended attributes (xattr) for instant performance, and maybe EXIF later.
-            
             let xattrName = "com.apple.metadata:kMDItemStarRating"
 
             url.withUnsafeFileSystemRepresentation { fileSystemPath in
