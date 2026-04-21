@@ -180,6 +180,9 @@ struct MinimalToolbar: View {
                 
                 Button(action: {
                     withAnimation { appState.isGridViewActive.toggle() }
+                    if !appState.isGridViewActive {
+                        appState.clearSelection()
+                    }
                 }) {
                     Image(systemName: appState.isGridViewActive ? "photo" : "square.grid.2x2")
                         .font(.title3)
@@ -289,42 +292,211 @@ struct EmptyStateView: View {
 // MARK: - Grid View
 struct ImageGridView: View {
     @EnvironmentObject var appState: AppState
+    // Tracks the last tapped index for shift-range selection
+    @State private var lastTappedIndex: Int? = nil
     
     let columns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 20)]
     
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 24) {
-                ForEach(Array(appState.viewImages.enumerated()), id: \.element) { index, url in
-                    VStack(spacing: 8) {
-                        ThumbnailItemView(
-                            url: url,
-                            isSelected: index == appState.currentIndex,
-                            rating: appState.imageRatings[url],
-                            reloadToken: appState.imageReloadToken
-                        )
-                        .frame(height: 140)
+        VStack(spacing: 0) {
+            // Multi-select action bar — shown when items are selected
+            if appState.hasSelection {
+                MultiSelectActionBar(lastTappedIndex: $lastTappedIndex)
+            }
+            
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 24) {
+                    ForEach(Array(appState.viewImages.enumerated()), id: \.element) { index, url in
+                        let isSelected = appState.selectedIndices.contains(index)
+                        let isCurrent = index == appState.currentIndex
                         
-                        Text(url.lastPathComponent)
-                            .font(.system(size: 11))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    .padding(8)
-                    .background(index == appState.currentIndex ? Color.accentColor.opacity(0.15) : Color.clear)
-                    .cornerRadius(8)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        appState.selectImage(at: index)
-                        withAnimation { appState.isGridViewActive = false }
-                    }
-                    .contextMenu {
-                        Button("Copy Image") { appState.copyToClipboard(url: url) }
-                        Button("Share") { appState.shareItem(url: url) }
+                        VStack(spacing: 8) {
+                            ZStack(alignment: .topTrailing) {
+                                ThumbnailItemView(
+                                    url: url,
+                                    isSelected: isCurrent && !appState.hasSelection,
+                                    rating: appState.imageRatings[url],
+                                    reloadToken: appState.imageReloadToken
+                                )
+                                .frame(height: 140)
+                                
+                                // Checkmark badge for multi-select
+                                if appState.hasSelection {
+                                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 20, weight: .semibold))
+                                        .foregroundColor(isSelected ? .accentColor : .white.opacity(0.8))
+                                        .shadow(radius: 2)
+                                        .padding(6)
+                                }
+                            }
+                            
+                            Text(url.lastPathComponent)
+                                .font(.system(size: 11))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        .padding(8)
+                        .background(
+                            isSelected
+                                ? Color.accentColor.opacity(0.25)
+                                : (isCurrent && !appState.hasSelection ? Color.accentColor.opacity(0.15) : Color.clear)
+                        )
+                        .cornerRadius(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                        )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            handleTap(index: index)
+                        }
+                        .contextMenu {
+                            if appState.hasSelection && appState.selectedIndices.contains(index) {
+                                // Multi-select context menu
+                                Text("\(appState.selectedIndices.count) photos selected")
+                                    .foregroundColor(.secondary)
+                                Divider()
+                                Menu("Rate Selected") {
+                                    Button("Good (3)") { appState.rateSelectedImages(3) }
+                                    Button("Maybe (2)") { appState.rateSelectedImages(2) }
+                                    Button("Bad (1)") { appState.rateSelectedImages(1) }
+                                    Button("Unrate (0)") { appState.rateSelectedImages(0) }
+                                }
+                                Button("Move Selected…") { appState.showMovePicker() }
+                                Divider()
+                                Button("Deselect All") { appState.clearSelection() }
+                                Divider()
+                                Button("Delete Selected", role: .destructive) {
+                                    appState.deleteSelectedImages()
+                                }
+                            } else {
+                                Button("Open") {
+                                    appState.selectImage(at: index)
+                                    withAnimation { appState.isGridViewActive = false }
+                                }
+                                Button("Copy Image") { appState.copyToClipboard(url: url) }
+                                Button("Share") { appState.shareItem(url: url) }
+                                Divider()
+                                Button("Select") {
+                                    appState.toggleSelection(at: index)
+                                    lastTappedIndex = index
+                                }
+                            }
+                        }
                     }
                 }
+                .padding(24)
             }
-            .padding(24)
         }
+        // Cmd+A = select all
+        .background(
+            Button("") { appState.selectAll() }
+                .keyboardShortcut("a", modifiers: [.command])
+                .opacity(0)
+        )
+        // Escape = clear selection
+        .background(
+            Button("") {
+                if appState.hasSelection {
+                    appState.clearSelection()
+                    lastTappedIndex = nil
+                }
+            }
+            .keyboardShortcut(.escape, modifiers: [])
+            .opacity(0)
+        )
+        .alert("Delete \(appState.selectedIndices.count) photo\(appState.selectedIndices.count == 1 ? "" : "s")?",
+               isPresented: $appState.showDeleteSelectionConfirmation) {
+            Button("Delete", role: .destructive) {
+                appState.confirmDeleteSelectedImages()
+                lastTappedIndex = nil
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This will move the selected photos to Trash.")
+        }
+    }
+    
+    private func handleTap(index: Int) {
+        let modifiers = NSEvent.modifierFlags
+        
+        if modifiers.contains(.command) {
+            // Cmd+click: toggle individual item
+            appState.toggleSelection(at: index)
+            lastTappedIndex = index
+        } else if modifiers.contains(.shift), let anchor = lastTappedIndex {
+            // Shift+click: range select
+            appState.selectRange(from: anchor, to: index)
+            lastTappedIndex = index
+        } else if appState.hasSelection {
+            // Plain click while in multi-select mode: toggle item
+            appState.toggleSelection(at: index)
+            lastTappedIndex = index
+        } else {
+            // Plain click with no selection: navigate to image
+            appState.selectImage(at: index)
+            withAnimation { appState.isGridViewActive = false }
+        }
+    }
+}
+
+// MARK: - Multi-Select Action Bar
+struct MultiSelectActionBar: View {
+    @EnvironmentObject var appState: AppState
+    @Binding var lastTappedIndex: Int?
+    
+    var body: some View {
+        HStack(spacing: 16) {
+            Text("\(appState.selectedIndices.count) selected")
+                .font(.subheadline)
+                .fontWeight(.medium)
+            
+            Spacer()
+            
+            // Rate menu
+            Menu {
+                Button("Good (3)") { appState.rateSelectedImages(3) }
+                Button("Maybe (2)") { appState.rateSelectedImages(2) }
+                Button("Bad (1)") { appState.rateSelectedImages(1) }
+                Button("Unrate") { appState.rateSelectedImages(0) }
+            } label: {
+                Label("Rate", systemImage: "star")
+                    .font(.subheadline)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            
+            Button {
+                appState.showMovePicker()
+            } label: {
+                Label("Move", systemImage: "folder")
+                    .font(.subheadline)
+            }
+            .buttonStyle(.plain)
+            
+            Button {
+                appState.deleteSelectedImages()
+            } label: {
+                Label("Delete", systemImage: "trash")
+                    .font(.subheadline)
+                    .foregroundColor(.red)
+            }
+            .buttonStyle(.plain)
+            
+            Button {
+                appState.clearSelection()
+                lastTappedIndex = nil
+            } label: {
+                Text("Deselect All")
+                    .font(.subheadline)
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.secondary)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 10)
+        .background(VisualEffectView(material: .titlebar, blendingMode: .withinWindow))
+        .overlay(Divider(), alignment: .bottom)
     }
 }

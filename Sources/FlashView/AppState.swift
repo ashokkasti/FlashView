@@ -81,7 +81,11 @@ class AppState: ObservableObject {
     // Grid View State
     @Published var isGridViewActive: Bool = false
     
-    
+    // Multi-select state (indices into viewImages)
+    @Published var selectedIndices: Set<Int> = []
+    @Published var showDeleteSelectionConfirmation: Bool = false
+    @Published var showMoveSelectionSheet: Bool = false
+
     // Feedback
     @Published var toastMessage: String? = nil
     
@@ -424,6 +428,7 @@ class AppState: ObservableObject {
             self.currentFolder = path
             self.images = loadedImages
             self.imageRatings = [:]
+            self.selectedIndices = []
             self.selectImage(at: 0)
             self.isSlideshowActive = false
             self.selectedRatingFilter = nil
@@ -619,6 +624,131 @@ class AppState: ObservableObject {
     
     func cancelCropRotate() {
         isCropRotateMode = false
+    }
+    
+    // MARK: - Multi-Select
+    
+    var hasSelection: Bool { !selectedIndices.isEmpty }
+    
+    var selectedURLs: [URL] {
+        let list = viewImages
+        return selectedIndices.sorted().compactMap { i in
+            i < list.count ? list[i] : nil
+        }
+    }
+    
+    func toggleSelection(at index: Int) {
+        if selectedIndices.contains(index) {
+            selectedIndices.remove(index)
+        } else {
+            selectedIndices.insert(index)
+        }
+    }
+    
+    func selectRange(from anchor: Int, to target: Int) {
+        let lo = min(anchor, target)
+        let hi = max(anchor, target)
+        for i in lo...hi { selectedIndices.insert(i) }
+    }
+    
+    func selectAll() {
+        selectedIndices = Set(0..<viewImages.count)
+    }
+    
+    func clearSelection() {
+        selectedIndices = []
+    }
+    
+    func deleteSelectedImages() {
+        guard !selectedIndices.isEmpty else { return }
+        showDeleteSelectionConfirmation = true
+    }
+    
+    func confirmDeleteSelectedImages() {
+        showDeleteSelectionConfirmation = false
+        let urls = selectedURLs
+        var removedCount = 0
+        for url in urls {
+            do {
+                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                images.removeAll { $0 == url }
+                ImageProcessor.shared.invalidateCache(for: url)
+                removedCount += 1
+            } catch {
+                print("Failed to trash \(url.lastPathComponent): \(error)")
+            }
+        }
+        selectedIndices = []
+        let list = viewImages
+        if currentIndex >= list.count {
+            currentIndex = max(0, list.count - 1)
+        }
+        updateCurrentMetadata()
+        showToast("Moved \(removedCount) photo\(removedCount == 1 ? "" : "s") to Trash")
+    }
+    
+    func moveSelectedImages(to destinationFolder: URL) {
+        let urls = selectedURLs
+        guard !urls.isEmpty else { return }
+        var movedCount = 0
+        for url in urls {
+            let dest = destinationFolder.appendingPathComponent(url.lastPathComponent)
+            do {
+                try FileManager.default.moveItem(at: url, to: dest)
+                images.removeAll { $0 == url }
+                ImageProcessor.shared.invalidateCache(for: url)
+                movedCount += 1
+            } catch {
+                print("Failed to move \(url.lastPathComponent): \(error)")
+            }
+        }
+        selectedIndices = []
+        let list = viewImages
+        if currentIndex >= list.count {
+            currentIndex = max(0, list.count - 1)
+        }
+        updateCurrentMetadata()
+        showToast("Moved \(movedCount) photo\(movedCount == 1 ? "" : "s")")
+    }
+    
+    func rateSelectedImages(_ rating: Int) {
+        guard let path = currentFolder else { return }
+        let urls = selectedURLs
+        let normalizedRating: Int? = rating == 0 ? nil : rating
+        for url in urls {
+            let oldRating = imageRatings[url]
+            MetadataManager.shared.setRating(for: url, rating: normalizedRating)
+            if let r = normalizedRating {
+                imageRatings[url] = r
+            } else {
+                imageRatings.removeValue(forKey: url)
+            }
+            folderManager.updateCount(for: path, oldRating: oldRating, newRating: normalizedRating)
+        }
+        updateCurrentMetadata()
+        let label: String
+        switch rating {
+        case 3: label = "Good"
+        case 2: label = "Maybe"
+        case 1: label = "Bad"
+        default: label = "Unrated"
+        }
+        showToast("Rated \(urls.count) photo\(urls.count == 1 ? "" : "s"): \(label)")
+    }
+    
+    func showMovePicker() {
+        guard !selectedIndices.isEmpty else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Move Here"
+        panel.message = "Choose destination folder for \(selectedIndices.count) photo\(selectedIndices.count == 1 ? "" : "s")"
+        panel.begin { response in
+            if response == .OK, let dest = panel.url {
+                self.moveSelectedImages(to: dest)
+            }
+        }
     }
     
     // MARK: - Copy and Share Native Functions
