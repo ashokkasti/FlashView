@@ -193,16 +193,7 @@ class AppState: ObservableObject {
 
         folderManager.updateCount(for: path, oldRating: oldRating, newRating: normalizedRating)
         
-        let label: String
-        if rating == 3 {
-            label = "Good"
-        } else if rating == 2 {
-            label = "Maybe"
-        } else if rating == 1 {
-            label = "Bad"
-        } else {
-            label = "Unrated"
-        }
+        let label = RatingConfig.shared.name(for: rating)
         showToast("Rated: \(label)")
         
         // If image drops out of current filter bucket, don't move next index
@@ -815,13 +806,7 @@ class AppState: ObservableObject {
             folderManager.updateCount(for: path, oldRating: oldRating, newRating: normalizedRating)
         }
         updateCurrentMetadata()
-        let label: String
-        switch rating {
-        case 3: label = "Good"
-        case 2: label = "Maybe"
-        case 1: label = "Bad"
-        default: label = "Unrated"
-        }
+        let label = RatingConfig.shared.name(for: rating)
         showToast("Rated \(urls.count) photo\(urls.count == 1 ? "" : "s"): \(label)")
     }
     

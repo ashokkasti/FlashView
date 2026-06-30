@@ -50,6 +50,13 @@ struct FlashViewApp: App {
                 }
             }
             
+            CommandMenu("Labels") {
+                Button("Edit Rating Labels…") {
+                    NotificationCenter.default.post(name: .showRatingSettings, object: nil)
+                }
+                .keyboardShortcut(",", modifiers: [.command])
+            }
+            
             CommandGroup(after: .newItem) {
                 Button("New Tab") {
                     NSApp.keyWindow?.tabbingMode = .preferred

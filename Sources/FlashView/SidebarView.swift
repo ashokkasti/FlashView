@@ -94,12 +94,10 @@ struct FolderOutlineView: View {
                         .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 4))
                     FilterRowView(title: "Unrated", count: counts[FolderManager.unratedCountKey] ?? 0, rating: 0, color: .secondary, path: path, onFilterSelect: onFilterSelect)
                         .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 4))
-                    FilterRowView(title: "Good", count: counts[3] ?? 0, rating: 3, color: .green, path: path, onFilterSelect: onFilterSelect)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 4))
-                    FilterRowView(title: "Maybe", count: counts[2] ?? 0, rating: 2, color: .yellow, path: path, onFilterSelect: onFilterSelect)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 4))
-                    FilterRowView(title: "Bad", count: counts[1] ?? 0, rating: 1, color: .red, path: path, onFilterSelect: onFilterSelect)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 4))
+                    ForEach(RatingConfig.shared.sortedLabels) { label in
+                        FilterRowView(title: label.name, count: counts[label.value] ?? 0, rating: label.value, color: label.color, path: path, onFilterSelect: onFilterSelect)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 4))
+                    }
                 }
             },
             label: {

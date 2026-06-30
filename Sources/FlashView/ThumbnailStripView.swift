@@ -82,12 +82,8 @@ struct ThumbnailItemView: View {
     @State private var thumbnailRequest: ImageProcessor.ThumbnailRequest?
     
     var ratingColor: Color {
-        if let r = rating {
-            if r == 3 { return .green }
-            if r == 2 { return .yellow }
-            if r == 1 { return .red }
-        }
-        return .clear
+        guard let r = rating, r > 0 else { return .clear }
+        return RatingConfig.shared.color(for: r)
     }
     
     var body: some View {

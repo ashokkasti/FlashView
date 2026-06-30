@@ -57,11 +57,14 @@ struct ViewerWindowView: View {
                     Button("") { appState.deleteCurrentImage() }.keyboardShortcut("d", modifiers: [])
                     Button("") { appState.refreshFolder() }.keyboardShortcut("r", modifiers: [.command])
                     
-                    // Ratings 1=Bad, 2=Maybe, 3=Good
+                    // Rating shortcuts — dynamically generated from config
                     Button("") { appState.applyRating(0) }.keyboardShortcut("0", modifiers: [])
-                    Button("") { appState.applyRating(1) }.keyboardShortcut("1", modifiers: [])
-                    Button("") { appState.applyRating(2) }.keyboardShortcut("2", modifiers: [])
-                    Button("") { appState.applyRating(3) }.keyboardShortcut("3", modifiers: [])
+                    ForEach(RatingConfig.shared.sortedLabels) { label in
+                        if !label.shortcut.isEmpty, let char = label.shortcut.first {
+                            Button("") { appState.applyRating(label.value) }
+                                .keyboardShortcut(KeyEquivalent(char), modifiers: [])
+                        }
+                    }
                     
                     // Save shortcut
                     Button("") { appState.saveImageEdits() }.keyboardShortcut("s", modifiers: [.command])
@@ -110,6 +113,7 @@ struct ViewerWindowView: View {
 // Minimal Toolbar — file name, rating tag, refresh button
 struct MinimalToolbar: View {
     @EnvironmentObject var appState: AppState
+    @State private var showRatingSettings = false
     
     var body: some View {
         HStack(spacing: 16) {
@@ -158,13 +162,14 @@ struct MinimalToolbar: View {
             
             // Rating tag
             if let r = appState.currentRating, !appState.isGridViewActive {
+                let bgColor = ratingColor(r)
                 Text(ratingLabel(r))
                     .font(.caption).bold()
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
-                    .background(ratingColor(r))
+                    .background(bgColor)
                     .cornerRadius(8)
-                    .foregroundColor(r == 2 ? .black : .white)
+                    .foregroundColor(bgColor.readableTextColor)
             }
             
             Spacer()
@@ -222,6 +227,16 @@ struct MinimalToolbar: View {
                 .buttonStyle(.plain)
                 .help("Show Adjustments")
                 
+                Button(action: { showRatingSettings = true }) {
+                    Image(systemName: "tag")
+                        .font(.title3)
+                }
+                .buttonStyle(.plain)
+                .help("Rating Labels")
+                .popover(isPresented: $showRatingSettings) {
+                    RatingSettingsView()
+                }
+                
                 Button(action: {
                     appState.isFullscreen.toggle()
                 }) {
@@ -238,23 +253,11 @@ struct MinimalToolbar: View {
     }
     
     private func ratingLabel(_ r: Int) -> String {
-        switch r {
-        case 0: return "Unrated"
-        case 3: return "Good"
-        case 2: return "Maybe"
-        case 1: return "Bad"
-        default: return "\(r) Stars"
-        }
+        RatingConfig.shared.name(for: r)
     }
     
     private func ratingColor(_ r: Int) -> Color {
-        switch r {
-        case 0: return .gray
-        case 3: return .green
-        case 2: return .yellow
-        case 1: return .red
-        default: return .gray
-        }
+        RatingConfig.shared.color(for: r)
     }
 }
 
@@ -359,9 +362,9 @@ struct ImageGridView: View {
                                     .foregroundColor(.secondary)
                                 Divider()
                                 Menu("Rate Selected") {
-                                    Button("Good (3)") { appState.rateSelectedImages(3) }
-                                    Button("Maybe (2)") { appState.rateSelectedImages(2) }
-                                    Button("Bad (1)") { appState.rateSelectedImages(1) }
+                                    ForEach(RatingConfig.shared.sortedLabels) { label in
+                                        Button("\(label.name) (\(label.value))") { appState.rateSelectedImages(label.value) }
+                                    }
                                     Button("Unrate (0)") { appState.rateSelectedImages(0) }
                                 }
                                 Button("Move Selected…") { appState.showMovePicker() }
@@ -458,9 +461,9 @@ struct MultiSelectActionBar: View {
             
             // Rate menu
             Menu {
-                Button("Good (3)") { appState.rateSelectedImages(3) }
-                Button("Maybe (2)") { appState.rateSelectedImages(2) }
-                Button("Bad (1)") { appState.rateSelectedImages(1) }
+                ForEach(RatingConfig.shared.sortedLabels) { label in
+                    Button("\(label.name) (\(label.value))") { appState.rateSelectedImages(label.value) }
+                }
                 Button("Unrate") { appState.rateSelectedImages(0) }
             } label: {
                 Label("Rate", systemImage: "star")

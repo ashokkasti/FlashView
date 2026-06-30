@@ -4,6 +4,7 @@ import AppKit
 struct ContentView: View {
     @StateObject private var folderManager = FolderManager()
     @StateObject private var appState: AppState
+    @State private var showRatingSettings = false
     
     init() {
         let manager = FolderManager()
@@ -40,6 +41,21 @@ struct ContentView: View {
                 appState.openFile(at: url)
             }
         }
+        .sheet(isPresented: $showRatingSettings) {
+            VStack(spacing: 0) {
+                HStack {
+                    Spacer()
+                    Button("Done") { showRatingSettings = false }
+                        .keyboardShortcut(.defaultAction)
+                }
+                .padding(12)
+                RatingSettingsView()
+            }
+            .frame(width: 440)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showRatingSettings)) { _ in
+            showRatingSettings = true
+        }
     }
 }
 
@@ -61,4 +77,8 @@ private struct WindowTabbingConfigurator: NSViewRepresentable {
             }
         }
     }
+}
+
+extension Notification.Name {
+    static let showRatingSettings = Notification.Name("showRatingSettings")
 }
