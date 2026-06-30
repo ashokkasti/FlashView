@@ -10,11 +10,26 @@ import Vision
 class ImageProcessor {
     
     static let shared = ImageProcessor()
+
+    final class ThumbnailRequest {
+        fileprivate weak var operation: Operation?
+
+        func cancel() {
+            operation?.cancel()
+        }
+    }
     
-    private let cacheDirectory: URL
-    private let cache = NSCache<NSString, NSImage>()
+    private let thumbnailDiskCacheURL: URL
+    private let memoryCache = NSCache<NSString, NSImage>()
     private let cacheIndexQueue = DispatchQueue(label: "FlashView.ImageProcessor.CacheIndex")
     private var thumbnailCacheKeysByPath: [String: Set<String>] = [:]
+    private let thumbnailQueue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.name = "FlashView.ImageProcessor.ThumbnailQueue"
+        queue.qualityOfService = .utility
+        queue.maxConcurrentOperationCount = 2
+        return queue
+    }()
     
     /// Serial queue for main preview image decoding — ensures at most 1 decode in flight
     let previewDecodeQueue = DispatchQueue(label: "FlashView.ImageProcessor.PreviewDecode", qos: .userInitiated, autoreleaseFrequency: .workItem)
@@ -29,19 +44,48 @@ class ImageProcessor {
     
     private init() {
         let fileManager = FileManager.default
-        let paths = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)
-        let appCachePath = paths[0].appendingPathComponent("FlashView", isDirectory: true)
+        let tempDir = fileManager.temporaryDirectory.appendingPathComponent("FlashView_Thumbnails", isDirectory: true)
         
-        if !fileManager.fileExists(atPath: appCachePath.path) {
-            try? fileManager.createDirectory(at: appCachePath, withIntermediateDirectories: true, attributes: nil)
+        if fileManager.fileExists(atPath: tempDir.path) {
+            try? fileManager.removeItem(at: tempDir)
         }
+        try? fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true, attributes: nil)
         
-        self.cacheDirectory = appCachePath
-        cache.countLimit = 50
-        cache.totalCostLimit = 20 * 1024 * 1024
+        self.thumbnailDiskCacheURL = tempDir
+        memoryCache.countLimit = 10
+        memoryCache.totalCostLimit = 5 * 1024 * 1024
     }
     
     // MARK: - Cache Management
+    
+    private func diskCacheKey(for url: URL, maxPixelSize: Int) -> String {
+        let hash = url.path.hashValue
+        return "\(hash)_\(maxPixelSize).jpg"
+    }
+    
+    private func diskCacheURL(for url: URL, maxPixelSize: Int) -> URL {
+        thumbnailDiskCacheURL.appendingPathComponent(diskCacheKey(for: url, maxPixelSize: maxPixelSize))
+    }
+    
+    private func loadFromDisk(url: URL, maxPixelSize: Int) -> NSImage? {
+        let fileURL = diskCacheURL(for: url, maxPixelSize: maxPixelSize)
+        guard FileManager.default.fileExists(atPath: fileURL.path),
+              let image = NSImage(contentsOf: fileURL) else {
+            return nil
+        }
+        image.cacheMode = .never
+        return image
+    }
+    
+    private func saveToDisk(_ image: NSImage, url: URL, maxPixelSize: Int) {
+        let fileURL = diskCacheURL(for: url, maxPixelSize: maxPixelSize)
+        guard let tiffData = image.tiffRepresentation,
+              let bitmapRep = NSBitmapImageRep(data: tiffData),
+              let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else {
+            return
+        }
+        try? jpegData.write(to: fileURL, options: .atomic)
+    }
     
     /// Remove a specific URL from the thumbnail cache
     func invalidateCache(for url: URL) {
@@ -51,12 +95,17 @@ class ImageProcessor {
         }
 
         if keysToRemove.isEmpty {
-            cache.removeObject(forKey: url.path as NSString)
+            memoryCache.removeObject(forKey: url.path as NSString)
             return
         }
 
         for key in keysToRemove {
-            cache.removeObject(forKey: key)
+            memoryCache.removeObject(forKey: key)
+            let parts = (key as String).components(separatedBy: "#")
+            if let path = parts.first, let sizeStr = parts.last, let size = Int(sizeStr) {
+                let fileURL = diskCacheURL(for: URL(fileURLWithPath: path), maxPixelSize: size)
+                try? FileManager.default.removeItem(at: fileURL)
+            }
         }
     }
     
@@ -65,8 +114,11 @@ class ImageProcessor {
         cacheIndexQueue.sync {
             thumbnailCacheKeysByPath.removeAll(keepingCapacity: false)
         }
-        cache.removeAllObjects()
+        thumbnailQueue.cancelAllOperations()
+        memoryCache.removeAllObjects()
         ciContext.clearCaches()
+        try? FileManager.default.removeItem(at: thumbnailDiskCacheURL)
+        try? FileManager.default.createDirectory(at: thumbnailDiskCacheURL, withIntermediateDirectories: true)
     }
 
     /// Keep only thumbnail cache entries for the provided URLs.
@@ -74,15 +126,21 @@ class ImageProcessor {
         let keepPaths = Set(urls.map { $0.path })
         let keysToRemove: [NSString] = cacheIndexQueue.sync {
             var remove: [NSString] = []
-            for (path, keys) in thumbnailCacheKeysByPath where !keepPaths.contains(path) {
+            let pathsToRemove = thumbnailCacheKeysByPath.keys.filter { !keepPaths.contains($0) }
+            for path in pathsToRemove {
+                guard let keys = thumbnailCacheKeysByPath.removeValue(forKey: path) else { continue }
                 remove.append(contentsOf: keys.map { $0 as NSString })
-                thumbnailCacheKeysByPath.removeValue(forKey: path)
             }
             return remove
         }
 
         for key in keysToRemove {
-            cache.removeObject(forKey: key)
+            memoryCache.removeObject(forKey: key)
+            let parts = (key as String).components(separatedBy: "#")
+            if let path = parts.first, let sizeStr = parts.last, let size = Int(sizeStr) {
+                let fileURL = diskCacheURL(for: URL(fileURLWithPath: path), maxPixelSize: size)
+                try? FileManager.default.removeItem(at: fileURL)
+            }
         }
     }
 
@@ -108,27 +166,49 @@ class ImageProcessor {
             space: colorSpace,
             bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
         ) else {
-            return NSImage(cgImage: cgImage, size: NSSize(width: w, height: h))
+            return uncachedImage(cgImage: cgImage)
         }
         ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
         guard let copy = ctx.makeImage() else {
-            return NSImage(cgImage: cgImage, size: NSSize(width: w, height: h))
+            return uncachedImage(cgImage: cgImage)
         }
-        return NSImage(cgImage: copy, size: NSSize(width: w, height: h))
+        return uncachedImage(cgImage: copy)
+    }
+
+    private func uncachedImage(cgImage: CGImage) -> NSImage {
+        let image = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        image.cacheMode = .never
+        return image
     }
 
     // MARK: - Thumbnail Generation
     
-    func generateThumbnail(for url: URL, maxPixelSize: Int = 200, completion: @escaping (NSImage?) -> Void) {
+    func generateThumbnail(for url: URL, maxPixelSize: Int = 200, completion: @escaping (NSImage?) -> Void) -> ThumbnailRequest {
+        let request = ThumbnailRequest()
         
         let cacheKey = "\(url.path)#\(maxPixelSize)" as NSString
-        if let cachedImage = cache.object(forKey: cacheKey) {
+        if let cachedImage = memoryCache.object(forKey: cacheKey) {
             completion(cachedImage)
-            return
+            return request
         }
         
-        DispatchQueue.global(qos: .userInitiated).async {
+        if let diskImage = loadFromDisk(url: url, maxPixelSize: maxPixelSize) {
+            let estimatedCost = diskImage.size.width * diskImage.size.height * 4
+            memoryCache.setObject(diskImage, forKey: cacheKey, cost: Int(estimatedCost))
+            self.cacheIndexQueue.async {
+                var keys = self.thumbnailCacheKeysByPath[url.path] ?? []
+                keys.insert(cacheKey as String)
+                self.thumbnailCacheKeysByPath[url.path] = keys
+            }
+            completion(diskImage)
+            return request
+        }
+        
+        let operation = BlockOperation()
+        operation.addExecutionBlock { [weak operation] in
             autoreleasepool {
+                guard operation?.isCancelled == false else { return }
+
                 let options: [CFString: Any] = [
                     kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
                     kCGImageSourceCreateThumbnailWithTransform: true,
@@ -139,26 +219,37 @@ class ImageProcessor {
                 
                 guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
                       let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-                    DispatchQueue.main.async {
+                    guard operation?.isCancelled == false else { return }
+                    DispatchQueue.main.async { [weak operation] in
+                        guard operation?.isCancelled == false else { return }
                         completion(nil)
                     }
                     return
                 }
+
+                guard operation?.isCancelled == false else { return }
                 
                 let nsImage = self.detachedNSImage(from: cgImage)
                 let estimatedCost = cgImage.width * cgImage.height * 4
-                self.cache.setObject(nsImage, forKey: cacheKey, cost: estimatedCost)
+                
+                self.saveToDisk(nsImage, url: url, maxPixelSize: maxPixelSize)
+                self.memoryCache.setObject(nsImage, forKey: cacheKey, cost: estimatedCost)
                 self.cacheIndexQueue.async {
                     var keys = self.thumbnailCacheKeysByPath[url.path] ?? []
                     keys.insert(cacheKey as String)
                     self.thumbnailCacheKeysByPath[url.path] = keys
                 }
                 
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak operation] in
+                    guard operation?.isCancelled == false else { return }
                     completion(nsImage)
                 }
             }
         }
+
+        request.operation = operation
+        thumbnailQueue.addOperation(operation)
+        return request
     }
     
     func loadLargeImage(from url: URL, maxPixelSize: Int = 2048) -> NSImage? {
@@ -174,7 +265,7 @@ class ImageProcessor {
 
             guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
                   let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-                return NSImage(contentsOf: url)
+                return nil
             }
 
             // Detach from CGImageSource data provider so the full source file isn't retained
@@ -187,7 +278,7 @@ class ImageProcessor {
     /// Process image through the full pipeline: manual adjustments → film simulation → background removal → crop → rotate
     func processImage(url: URL, adjustments: ImageAdjustments) -> NSImage? {
         return autoreleasepool {
-            guard let ciImage = CIImage(contentsOf: url)?.oriented(forExifOrientation: getExifOrientation(url: url)) else { return nil }
+            guard let ciImage = previewCIImage(from: url, maxPixelSize: 2048) else { return nil }
             
             var image = ciImage
             
@@ -214,7 +305,7 @@ class ImageProcessor {
             let outputExtent = image.extent
             guard let cgImage = ciContext.createCGImage(image, from: outputExtent) else { return nil }
             
-            return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+            return uncachedImage(cgImage: cgImage)
         }
     }
     
@@ -244,10 +335,27 @@ class ImageProcessor {
                     return
                 }
                 
-                let nsImage = NSImage(cgImage: finalCG, size: NSSize(width: finalCG.width, height: finalCG.height))
+                let nsImage = self.uncachedImage(cgImage: finalCG)
                 DispatchQueue.main.async { completion(nsImage) }
             }
         }
+    }
+
+    private func previewCIImage(from url: URL, maxPixelSize: Int) -> CIImage? {
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCache: false,
+            kCGImageSourceShouldCacheImmediately: false,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+        ]
+
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return CIImage(contentsOf: url)?.oriented(forExifOrientation: getExifOrientation(url: url))
+        }
+
+        return CIImage(cgImage: cgImage)
     }
     
     // MARK: - Background Removal (Vision Framework)
@@ -870,7 +978,7 @@ class ImageProcessor {
             }
         }
         
-        cache.removeObject(forKey: sourceURL.path as NSString)
+        memoryCache.removeObject(forKey: sourceURL.path as NSString)
     }
     
     func saveEditedImage(url: URL, adjustments: ImageAdjustments) {

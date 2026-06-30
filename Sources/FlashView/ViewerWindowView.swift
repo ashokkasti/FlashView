@@ -306,7 +306,9 @@ struct ImageGridView: View {
             
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 24) {
-                    ForEach(Array(appState.viewImages.enumerated()), id: \.element) { index, url in
+                    let urls = appState.viewImages
+                    ForEach(urls.indices, id: \.self) { index in
+                        let url = urls[index]
                         let isSelected = appState.selectedIndices.contains(index)
                         let isCurrent = index == appState.currentIndex
                         

@@ -348,14 +348,7 @@ class AppState: ObservableObject {
     // MARK: - Export Bucket to ZIP
     
     func exportBucketAsZip(rating: Int?, folderPath: String) {
-        let list: [URL]
-        if rating == nil {
-            list = images
-        } else if rating == 0 {
-            list = images.filter { (imageRatings[$0] ?? 0) == 0 }
-        } else {
-            list = images.filter { imageRatings[$0] == rating }
-        }
+        let list = bucketImages(rating: rating, folderPath: folderPath)
 
         guard !list.isEmpty else {
             showToast("Bucket is empty")
@@ -417,6 +410,102 @@ class AppState: ObservableObject {
                     }
                 }
             }
+        }
+    }
+
+    private func bucketImages(rating: Int?, folderPath: String) -> [URL] {
+        let urls = folderManager.getImagesInFolder(folderPath)
+        guard let rating else { return urls }
+
+        if folderPath == currentFolder {
+            if rating == 0 {
+                return urls.filter { (imageRatings[$0] ?? 0) == 0 }
+            }
+            return urls.filter { imageRatings[$0] == rating }
+        }
+
+        var ratings: [URL: Int] = [:]
+        for url in urls {
+            if let value = MetadataManager.shared.getRating(for: url) {
+                ratings[url] = value
+            }
+        }
+
+        if rating == 0 {
+            return urls.filter { (ratings[$0] ?? 0) == 0 }
+        }
+        return urls.filter { ratings[$0] == rating }
+    }
+
+    private func bucketName(for rating: Int?) -> String {
+        if rating == nil { return "All" }
+        if rating == 0 { return "Unrated" }
+        if rating == 3 { return "Good" }
+        if rating == 2 { return "Maybe" }
+        return "Bad"
+    }
+
+    func deleteBucketImages(rating: Int?, folderPath: String) {
+        let urls = bucketImages(rating: rating, folderPath: folderPath)
+        guard !urls.isEmpty else {
+            showToast("Bucket is empty")
+            return
+        }
+
+        let bucketName = bucketName(for: rating)
+        let alert = NSAlert()
+        alert.messageText = "Move \(urls.count) \(bucketName) photo\(urls.count == 1 ? "" : "s") to Trash?"
+        alert.informativeText = "This affects photos in \((folderPath as NSString).lastPathComponent)."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Move to Trash")
+        alert.addButton(withTitle: "Cancel")
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        isProcessing = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            var trashedURLs: [URL] = []
+            for url in urls {
+                do {
+                    try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                    ImageProcessor.shared.invalidateCache(for: url)
+                    trashedURLs.append(url)
+                } catch {
+                    print("Failed to trash \(url.lastPathComponent): \(error)")
+                }
+            }
+
+            DispatchQueue.main.async {
+                self.applyTrashedImages(trashedURLs, folderPath: folderPath)
+                self.isProcessing = false
+                self.showToast("Moved \(trashedURLs.count) photo\(trashedURLs.count == 1 ? "" : "s") to Trash")
+            }
+        }
+    }
+
+    private func applyTrashedImages(_ trashedURLs: [URL], folderPath: String) {
+        guard !trashedURLs.isEmpty else { return }
+
+        let trashedSet = Set(trashedURLs)
+        imageRatings = imageRatings.filter { !trashedSet.contains($0.key) }
+
+        if currentFolder == folderPath {
+            images.removeAll { trashedSet.contains($0) }
+            selectedIndices = []
+
+            let list = viewImages
+            if currentIndex >= list.count {
+                currentIndex = max(0, list.count - 1)
+            }
+            updateCurrentMetadata()
+            adjustments = ImageAdjustments()
+            processedPreviewImage = nil
+            isCropRotateMode = false
+            imageReloadToken = UUID()
+            folderManager.loadCounts(for: folderPath, imageRatings: imageRatings)
+        } else {
+            folderManager.folderCounts[folderPath] = nil
+            folderManager.loadCounts(for: folderPath)
         }
     }
 
@@ -761,37 +850,11 @@ class AppState: ObservableObject {
     }
     
     func copyBucketImages(rating: Int?, folderPath: String) {
-        let fileManager = FileManager.default
-        let url = URL(fileURLWithPath: folderPath)
-        
-        do {
-            let contents = try fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
-            let extensions = ["jpg", "jpeg", "png", "heic", "tiff"]
-            var bucketUrls = contents.filter { u in
-                extensions.contains(u.pathExtension.lowercased())
-            }
-            
-            if let r = rating {
-                var cachedRatings: [URL: Int] = [:]
-                for u in bucketUrls {
-                    if let rating = MetadataManager.shared.getRating(for: u) {
-                        cachedRatings[u] = rating
-                    }
-                }
-                if r == 0 {
-                    bucketUrls = bucketUrls.filter { (cachedRatings[$0] ?? 0) == 0 }
-                } else {
-                    bucketUrls = bucketUrls.filter { cachedRatings[$0] == r }
-                }
-            }
-            
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            pb.writeObjects(bucketUrls as [NSURL])
-            showToast("Copied \(bucketUrls.count) items")
-        } catch {
-            showToast("Failed to copy items")
-        }
+        let bucketUrls = bucketImages(rating: rating, folderPath: folderPath)
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects(bucketUrls as [NSURL])
+        showToast("Copied \(bucketUrls.count) items")
     }
     
     func shareItem(url: URL) {

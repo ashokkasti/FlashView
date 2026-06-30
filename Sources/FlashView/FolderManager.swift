@@ -5,6 +5,7 @@ import SwiftUI
 class FolderManager: ObservableObject {
     static let allCountKey = -1
     static let unratedCountKey = 0
+    static let supportedImageExtensions = ["jpg", "jpeg", "png", "heic", "tiff"]
 
     @Published var recentFolders: [String] = []
     
@@ -79,11 +80,8 @@ class FolderManager: ObservableObject {
         do {
             let contents = try fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
             
-            // Supported extensions
-            let extensions = ["jpg", "jpeg", "png", "heic", "tiff"]
-            
             let images = contents.filter { url in
-                extensions.contains(url.pathExtension.lowercased())
+                FolderManager.supportedImageExtensions.contains(url.pathExtension.lowercased())
             }
             
             // Sort alphabetically for consistency

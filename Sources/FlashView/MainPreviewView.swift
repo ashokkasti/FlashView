@@ -17,6 +17,7 @@ struct MainPreviewView: View {
             if appState.isCropRotateMode, let image = displayImage {
                 CropOverlayView(image: image)
                     .environmentObject(appState)
+                    .id(imageId)
             } else if let image = displayImage {
                 ZStack {
                     Image(nsImage: image)
@@ -25,6 +26,7 @@ struct MainPreviewView: View {
                         .aspectRatio(contentMode: .fit)
                         .scaleEffect(scale)
                         .offset(offset)
+                        .id(imageId)
                     
                     // Invisible overlay to catch scroll events for zoom
                     ScrollDetector { delta in
@@ -120,6 +122,12 @@ struct MainPreviewView: View {
         }
         .onAppear {
             loadImage(url: appState.currentImage)
+        }
+        .onDisappear {
+            loadingTask?.cancel()
+            loadingTask = nil
+            loadedImage = nil
+            ImageProcessor.shared.flushTransientMemory()
         }
     }
     

@@ -2,22 +2,32 @@ import SwiftUI
 
 struct ThumbnailStripView: View {
     @EnvironmentObject var appState: AppState
+    private let thumbnailWindowRadius = 30
+
+    private var visibleIndices: Range<Int> {
+        let count = appState.viewImages.count
+        guard count > 0 else { return 0..<0 }
+
+        let lower = max(0, appState.currentIndex - thumbnailWindowRadius)
+        let upper = min(count, appState.currentIndex + thumbnailWindowRadius + 1)
+        return lower..<upper
+    }
     
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: true) {
                 LazyHStack(spacing: 4) {
-                    ForEach(Array(appState.viewImages.enumerated()), id: \.element) { index, url in
+                    let urls = appState.viewImages
+                    ForEach(Array(visibleIndices), id: \.self) { index in
+                        let url = urls[index]
                         ThumbnailItemView(
                             url: url,
                             isSelected: index == appState.currentIndex,
                             rating: appState.imageRatings[url],
-                            reloadToken: appState.imageReloadToken
+                            reloadToken: appState.imageReloadToken,
+                            onSelect: { appState.selectImage(at: index) }
                         )
                         .id(url)
-                        .onTapGesture {
-                            appState.selectImage(at: index)
-                        }
                     }
                 }
                 .padding(.horizontal)
@@ -31,8 +41,8 @@ struct ThumbnailStripView: View {
                 let list = appState.viewImages
                 if newIndex >= 0 && newIndex < list.count {
                     let url = list[newIndex]
-                    withAnimation {
-                        proxy.scrollTo(url, anchor: .center)
+                    DispatchQueue.main.async {
+                        proxy.scrollTo(url, anchor: .leading)
                     }
                 }
             }
@@ -42,7 +52,6 @@ struct ThumbnailStripView: View {
                 }
             }
             .onAppear {
-                // When coming back from Grid View, or initial load
                 scrollToCurrentItem(proxy: proxy)
             }
         }
@@ -54,9 +63,7 @@ struct ThumbnailStripView: View {
         if index >= 0 && index < list.count {
             let url = list[index]
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                withAnimation {
-                    proxy.scrollTo(url, anchor: .center)
-                }
+                proxy.scrollTo(url, anchor: .leading)
             }
         }
     }
@@ -68,9 +75,11 @@ struct ThumbnailItemView: View {
     let isSelected: Bool
     let rating: Int?
     let reloadToken: UUID
+    var onSelect: (() -> Void)? = nil
     
     @State private var thumbnail: NSImage?
     @State private var isHovered: Bool = false
+    @State private var thumbnailRequest: ImageProcessor.ThumbnailRequest?
     
     var ratingColor: Color {
         if let r = rating {
@@ -117,20 +126,27 @@ struct ThumbnailItemView: View {
                 }
             }
         }
-        .border(isSelected ? Color.accentColor : Color.clear, width: isSelected ? 3 : 0)
+        .overlay(
+            RoundedRectangle(cornerRadius: 0)
+                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: isSelected ? 3 : 0)
+        )
         .onAppear {
             loadThumbnail()
         }
         .onDisappear {
-            // Release the decoded image when scrolled off-screen
+            thumbnailRequest?.cancel()
+            thumbnailRequest = nil
             thumbnail = nil
         }
         .onChange(of: url) { _ in
+            thumbnailRequest?.cancel()
+            thumbnailRequest = nil
             thumbnail = nil
             loadThumbnail()
         }
-        // Force reload when token changes (e.g. after save in place)
         .onChange(of: reloadToken) { _ in
+            thumbnailRequest?.cancel()
+            thumbnailRequest = nil
             thumbnail = nil
             loadThumbnail()
         }
@@ -142,9 +158,14 @@ struct ThumbnailItemView: View {
                 NSCursor.pop()
             }
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onSelect?()
+        }
+        .onDrag {
+            NSItemProvider(object: url as NSURL)
+        }
         .contextMenu {
-            // Can't use AppState directly without injecting it here or passing closure,
-            // let's just make it simple
             Button("Copy Image") {
                 let pb = NSPasteboard.general
                 pb.clearContents()
@@ -157,14 +178,15 @@ struct ThumbnailItemView: View {
                 }
             }
         }
-        .onDrag {
-            NSItemProvider(object: url as NSURL)
-        }
     }
     
     private func loadThumbnail() {
-        ImageProcessor.shared.generateThumbnail(for: url) { img in
+        thumbnailRequest?.cancel()
+        let expectedURL = url
+        thumbnailRequest = ImageProcessor.shared.generateThumbnail(for: url) { img in
+            guard expectedURL == self.url else { return }
             self.thumbnail = img
+            self.thumbnailRequest = nil
         }
     }
 }

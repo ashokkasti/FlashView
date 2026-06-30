@@ -201,6 +201,9 @@ struct FilterRowView: View {
             Button("Copy All Images") {
                 appState.copyBucketImages(rating: rating, folderPath: path)
             }
+            Button("Move All to Trash", role: .destructive) {
+                appState.deleteBucketImages(rating: rating, folderPath: path)
+            }
             Button("Copy Path") {
                 let pb = NSPasteboard.general
                 pb.clearContents()
